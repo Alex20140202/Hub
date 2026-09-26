@@ -334,3 +334,17 @@
   .msg, .chat-typing-dots i { animation: none; }
   .reaction:hover, .chat-quick-btn:hover { transform: none; }
 }
+
+/* ---------- 管理后台 · 聊天室 ---------- */
+.chat-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-3); }
+.chat-admin-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.chat-admin-item {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: var(--sp-3); border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.chat-admin-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.chat-admin-body {
+  font-size: var(--step--1); color: var(--text-soft);
+  word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap;
+}

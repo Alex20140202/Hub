@@ -388,5 +388,15 @@ export function stats() {
   const active = get('SELECT COUNT(*) AS c FROM chat_mutes WHERE until IS NULL OR until > ?', [nowIso()])?.c || 0;
   const rooms = get('SELECT COUNT(*) AS c FROM chat_rooms')?.c || 0;
   const reactions = get('SELECT COUNT(*) AS c FROM chat_reactions')?.c || 0;
-  return { messages: total, rooms, mutes: active, reactions };
+  const today = get('SELECT COUNT(*) AS c FROM messages WHERE created_at >= ?', [
+    new Date(new Date().toDateString()).toISOString(),
+  ])?.c || 0;
+  // 键名统一带计数字后缀：避免与 /admin/chat 的 mutes 列表撞名互相覆盖
+  return {
+    messages: total,
+    messagesToday: today,
+    roomCount: rooms,
+    activeMutes: active,
+    reactions,
+  };
 }

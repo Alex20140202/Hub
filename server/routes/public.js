@@ -233,10 +233,11 @@ router.get('/admin/chat/messages', async (ctx) => {
 /** 聊天室管理总览（仅管理员） */
 router.get('/admin/chat', async (ctx) => {
   requireAdmin(ctx);
+  // 展开顺序：stats() 必须在前面，否则同名字段会覆盖列表
   ctx.ok({
+    ...chat.stats(),
     rooms: chat.listRooms(chat.roomCounts(), null),
     mutes: chat.listMutes(),
-    ...chat.stats(),
   });
 });
 

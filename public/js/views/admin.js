@@ -4,12 +4,13 @@ import { numberFmt, dateShort, timeAgo, humanSize } from '../lib/format.js';
 import { avatar, badge, tabs, statCard, skeleton, empty, statusBadge } from '../ui/components.js';
 import { lineChart, barChart, donutChart, chartLegend, heatmap } from '../ui/chart.js';
 import { toast } from '../ui/toast.js';
-import { confirmDialog, modal } from '../ui/modal.js';
+import { confirmDialog, modal, formDialog } from '../ui/modal.js';
 
 const TABS = [
   { key: 'dashboard', label: '📊 总览' },
   { key: 'posts', label: '📄 内容' },
   { key: 'comments', label: '💬 评论审核' },
+  { key: 'chat', label: '📨 聊天室' },
   { key: 'users', label: '👥 用户' },
   { key: 'links', label: '🔗 短链' },
   { key: 'shop', label: '🪙 积分商城' },
@@ -48,6 +49,7 @@ export default async function adminView(host) {
       if (current === 'dashboard') await renderDashboard();
       else if (current === 'posts') await renderPosts();
       else if (current === 'comments') await renderComments();
+      else if (current === 'chat') await renderChat();
       else if (current === 'users') await renderUsers();
       else if (current === 'links') await renderLinks();
       else if (current === 'shop') await renderShop();
@@ -345,6 +347,250 @@ export default async function adminView(host) {
       ]),
     );
     load();
+  }
+
+  /* ---------------- 聊天室 ---------------- */
+  async function renderChat() {
+    const data = await AdminAPI.chat();
+    const rooms = data.rooms || [];
+    const mutes = data.mutes || [];
+
+    const q = el('input.input.input-sm.grow', { type: 'search', placeholder: '按昵称或内容搜索消息', 'aria-label': '搜索聊天消息' });
+    const roomSel = el('select.select.input-sm', { 'aria-label': '筛选房间' }, [
+      el('option', { value: '' }, '全部房间'),
+      ...rooms.map((r) => el('option', { value: r.slug }, `${r.name}（${r.online} 在线）`)),
+    ]);
+    const listNode = el('div.chat-admin-list');
+    const resultHint = el('div.small.muted');
+
+    const loadMessages = async () => {
+      clear(listNode).append(skeleton(2));
+      try {
+        const params = { limit: 40 };
+        if (q.value.trim()) params.q = q.value.trim();
+        if (roomSel.value) params.room = roomSel.value;
+        const res = await AdminAPI.chatMessages(params);
+        clear(resultHint).append(`命中 ${res.items?.length || 0} 条`);
+        renderMessages(res.items || []);
+      } catch (err) {
+        clear(listNode).append(el('div.alert.alert-danger', {}, err.message));
+      }
+    };
+
+    const renderMessages = (items) => {
+      clear(listNode);
+      if (!items.length) {
+        listNode.append(empty('没有匹配的消息', '换个关键词试试', null, '🔍'));
+        return;
+      }
+      for (const m of items) {
+        listNode.append(
+          el('div.chat-admin-item', {}, [
+            el('div.chat-admin-head', {}, [
+              el('strong', {}, m.nickname || '（已注销）'),
+              el('span.tag.tag-sm', {}, m.room),
+              m.userId ? el('span.tag.tag-sm', {}, `用户 ${m.userId}`) : el('span.tag.tag-sm', {}, '游客'),
+              el('span.small.muted', {}, new Date(m.createdAt).toLocaleString('zh-CN')),
+              m.editedAt ? el('span.tag.tag-sm', {}, '已编辑') : null,
+              m.deleted ? el('span.tag.tag-sm', {}, '已删除') : null,
+            ]),
+            el('div.chat-admin-body', {}, m.deleted ? '（消息已删除）' : m.body),
+            el('div.row.gap-1', {}, [
+              // 禁言目标用稳定身份：登录用户给 userId，游客给 guestId
+              m.userId
+                ? el('button.btn.btn-ghost.btn-sm', {
+                    type: 'button',
+                    onclick: () => openMute(String(m.userId), m.nickname),
+                  }, '禁言')
+                : m.meta?.actor
+                  ? el('button.btn.btn-ghost.btn-sm', {
+                      type: 'button',
+                      onclick: () => openMute(String(m.meta.actor).replace(/^g:/, ''), m.nickname),
+                    }, '禁言')
+                  : null,
+              !m.deleted
+                ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => clearOne(m) }, '清空本房间')
+                : null,
+            ]),
+          ]),
+        );
+      }
+    };
+
+    const openMute = async (target, nickname) => {
+      const values = await formDialog({
+        title: `禁言 ${nickname || target}`,
+        intro: '目标按稳定身份记录：登录用户用用户 ID，游客用访客标识，因此改名后依然有效。',
+        fields: [
+          { name: 'minutes', label: '禁言时长（分钟）', type: 'number', value: 10, min: 0, max: 10080, required: true, hint: '填 0 表示永久禁言' },
+          { name: 'reason', label: '原因', value: '违反聊天室规范', maxlength: 80 },
+        ],
+        submitText: '禁言',
+      });
+      if (!values) return;
+      try {
+        await AdminAPI.muteChat(target, Number(values.minutes) || 0, values.reason);
+        toast.success(`已禁言 ${nickname || target}`);
+        mutesNode.replaceChildren(...(await AdminAPI.chat()).mutes.map(muteRow));
+      } catch (err) {
+        toast.error(err.message);
+      }
+    };
+
+    const clearOne = async (m) => {
+      const ok = await confirmDialog({
+        title: '清空房间',
+        message: `将删除「${m.room}」的全部消息与已读记录，且不可恢复。确定继续吗？`,
+        confirmText: '清空',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await AdminAPI.clearChat(m.room);
+        toast.success(`已清空 ${m.room}`);
+        loadMessages();
+      } catch (err) {
+        toast.error(err.message);
+      }
+    };
+
+    const muteRow = (mt) =>
+      el('div.chat-admin-item', {}, [
+        el('div.chat-admin-head', {}, [
+          el('strong', {}, mt.target),
+          mt.until ? el('span.tag.tag-sm', {}, `至 ${new Date(mt.until).toLocaleString('zh-CN')}`) : el('span.tag.tag-sm', {}, '永久'),
+          mt.reason ? el('span.small.muted', {}, mt.reason) : null,
+        ]),
+        el('div.row.gap-1', {}, [
+          el('button.btn.btn-ghost.btn-sm', {
+            type: 'button',
+            onclick: async () => {
+              try {
+                await AdminAPI.unmuteChat(mt.target);
+                toast.success('已解除禁言');
+                mutesNode.replaceChildren(...(await AdminAPI.chat()).mutes.map(muteRow));
+              } catch (err) {
+                toast.error(err.message);
+              }
+            },
+          }, '解除'),
+        ]),
+      ]);
+
+    const mutesNode = el('div.col');
+    if (mutes.length) mutesNode.replaceChildren(...mutes.map(muteRow));
+    else mutesNode.append(el('div.small.muted', {}, '当前没有禁言记录'));
+
+    const roomRows = rooms.map((r) =>
+      el('div.chat-admin-item', {}, [
+        el('div.chat-admin-head', {}, [
+          el('strong', {}, r.name),
+          el('span.tag.tag-sm', {}, r.kind),
+          el('span.small.muted', {}, r.online ? `${r.online} 人在线` : '无人在线'),
+        ]),
+        el('div.small.soft', {}, r.topic || '暂无主题'),
+        el('div.row.gap-1', {}, [
+          el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openEditRoom(r) }, '编辑'),
+          r.kind !== 'system'
+            ? el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => removeRoom(r) }, '删除')
+            : null,
+        ]),
+      ]),
+    );
+
+    const openEditRoom = async (room) => {
+      const values = await formDialog({
+        title: '编辑房间',
+        fields: [
+          { name: 'name', label: '房间名称', value: room.name, required: true, maxlength: 24 },
+          { name: 'topic', label: '房间主题', value: room.topic, maxlength: 80 },
+        ],
+      });
+      if (!values) return;
+      try {
+        await AdminAPI.updateChatRoom(room.slug, values);
+        toast.success('已保存');
+        render();
+      } catch (err) {
+        toast.error(err.message);
+      }
+    };
+
+    const removeRoom = async (room) => {
+      const ok = await confirmDialog({
+        title: '删除房间',
+        message: `将删除「${room.name}」及其全部消息，确定吗？`,
+        confirmText: '删除',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await AdminAPI.deleteChatRoom(room.slug);
+        toast.success('已删除');
+        render();
+      } catch (err) {
+        toast.error(err.message);
+      }
+    };
+
+    let qTimer = null;
+    q.addEventListener('input', () => {
+      clearTimeout(qTimer);
+      qTimer = setTimeout(loadMessages, 260);
+    });
+    roomSel.addEventListener('change', loadMessages);
+
+    clear(panel);
+    panel.append(
+      el('div.col', { style: { gap: '20px' } }, [
+        el('div.row.wrap.gap-2', {}, [
+          statCard('房间', rooms.length),
+          statCard('消息总数', data.messages ?? 0),
+          statCard('今日消息', data.messagesToday ?? 0),
+          statCard('表情回应', data.reactions ?? 0),
+          statCard('禁言中', mutes.length),
+        ]),
+        el('div.card', {}, [
+          el('div.card-title', {}, '房间管理'),
+          el('div.row.wrap.gap-2', { style: { marginBottom: '12px' } }, [
+            el('button.btn.btn-primary.btn-sm', {
+              type: 'button',
+              onclick: async () => {
+                const values = await formDialog({
+                  title: '新建房间',
+                  fields: [
+                    { name: 'name', label: '房间名称', required: true, maxlength: 24 },
+                    { name: 'topic', label: '房间主题', maxlength: 80 },
+                  ],
+                  submitText: '创建',
+                });
+                if (!values) return;
+                try {
+                  await AdminAPI.createChatRoom(values);
+                  toast.success('已创建');
+                  render();
+                } catch (err) {
+                  toast.error(err.message);
+                }
+              },
+            }, '新建房间'),
+            el('a.btn.btn-ghost.btn-sm', { href: '#/chat' }, '打开聊天室'),
+          ]),
+          el('div.chat-admin-grid', {}, roomRows),
+        ]),
+        el('div.card', {}, [
+          el('div.card-title', {}, '消息检索'),
+          el('div.row.wrap.gap-2', { style: { marginBottom: '12px' } }, [q, roomSel]),
+          resultHint,
+          listNode,
+        ]),
+        el('div.card', {}, [
+          el('div.card-title', {}, '禁言管理'),
+          mutesNode,
+        ]),
+      ]),
+    );
+    loadMessages();
   }
 
   /* ---------------- 用户 ---------------- */
