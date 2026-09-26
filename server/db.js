@@ -285,6 +285,63 @@ const MIGRATIONS = [
       ALTER TABLE users ADD COLUMN skin TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    name: '005_chat',
+    sql: `
+      ALTER TABLE messages ADD COLUMN reply_to TEXT;
+      ALTER TABLE messages ADD COLUMN edited_at TEXT;
+      ALTER TABLE messages ADD COLUMN deleted_at TEXT;
+      ALTER TABLE messages ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';
+
+      CREATE TABLE IF NOT EXISTS chat_rooms (
+        id         TEXT PRIMARY KEY,
+        slug       TEXT NOT NULL UNIQUE,
+        name       TEXT NOT NULL,
+        topic      TEXT NOT NULL DEFAULT '',
+        kind       TEXT NOT NULL DEFAULT 'public',
+        sort       INTEGER NOT NULL DEFAULT 100,
+        created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_rooms_sort ON chat_rooms(sort, name);
+
+      CREATE TABLE IF NOT EXISTS chat_reads (
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        room       TEXT NOT NULL,
+        last_read  TEXT NOT NULL,
+        PRIMARY KEY (user_id, room)
+      );
+
+      CREATE TABLE IF NOT EXISTS chat_reactions (
+        message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        actor      TEXT NOT NULL,
+        emoji      TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (message_id, actor, emoji)
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_reactions_msg ON chat_reactions(message_id);
+
+      CREATE TABLE IF NOT EXISTS chat_mutes (
+        id         TEXT PRIMARY KEY,
+        scope      TEXT NOT NULL,
+        target     TEXT NOT NULL,
+        reason     TEXT NOT NULL DEFAULT '',
+        until      TEXT,
+        created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_mutes_target ON chat_mutes(target, scope);
+
+      INSERT OR IGNORE INTO chat_rooms (id, slug, name, topic, kind, sort, created_by, created_at)
+        VALUES ('room-lobby', 'lobby', '大厅', '所有人都在这里聊天', 'system', 10, NULL, datetime('now'));
+      INSERT OR IGNORE INTO chat_rooms (id, slug, name, topic, kind, sort, created_by, created_at)
+        VALUES ('room-random', 'random', '随便聊聊', '今天摸鱼了吗', 'public', 20, NULL, datetime('now'));
+      INSERT OR IGNORE INTO chat_rooms (id, slug, name, topic, kind, sort, created_by, created_at)
+        VALUES ('room-help', 'help', '求助问答', '遇到问题先问这里', 'public', 30, NULL, datetime('now'));
+      INSERT OR IGNORE INTO chat_rooms (id, slug, name, topic, kind, sort, created_by, created_at)
+        VALUES ('room-dev', 'dev', '开发交流', '一起把 Hub 做得更好', 'public', 40, NULL, datetime('now'));
+    `,
+  },
 ];
 
 function currentVersion() {

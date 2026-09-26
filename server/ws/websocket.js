@@ -3,12 +3,15 @@ import { EventEmitter } from 'node:events';
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 const MAX_PAYLOAD = 256 * 1024;
+// 分片消息最多允许的帧数，防止恶意客户端不发 FIN 无限累积内存
+const MAX_FRAGMENTS = 64;
+const MAX_BUFFER = 1024 * 1024;
 
 const OP = { CONT: 0x0, TEXT: 0x1, BINARY: 0x2, CLOSE: 0x8, PING: 0x9, PONG: 0xa };
 
 /**
  * 极简 WebSocket 连接：完成 HTTP 握手 + 帧编解码 + 心跳。
- * 事件：message(text), close, pong, error
+ * 事件：message(text), binary, close({code, reason, remote}), pong, error
  */
 export class WsConnection extends EventEmitter {
   constructor(socket, req) {
@@ -18,24 +21,36 @@ export class WsConnection extends EventEmitter {
     this.open = true;
     this.isAlive = true;
     this.data = { user: null, room: 'lobby', nickname: '游客' };
+    this.id = crypto.randomBytes(6).toString('hex');
+    this.closeInfo = null;
 
     this._buffer = Buffer.alloc(0);
     this._fragments = [];
     this._fragmentOp = null;
+    this._writable = true;
 
     socket.on('data', (chunk) => this._onData(chunk));
+    socket.on('drain', () => {
+      this._writable = true;
+    });
     socket.on('close', () => this._teardown());
+    socket.on('end', () => this._teardown());
     socket.on('error', (err) => {
       this.emit('error', err);
       this._teardown();
     });
-    socket.on('timeout', () => this.close(1001, 'timeout'));
+  }
+
+  get remoteAddress() {
+    const fwd = String(this.req?.headers?.['x-forwarded-for'] || '');
+    if (fwd) return fwd.split(',')[0].trim();
+    return this.socket.remoteAddress || 'unknown';
   }
 
   _teardown() {
     if (!this.open) return;
     this.open = false;
-    this.emit('close');
+    this.emit('close', { code: this.closeInfo?.code ?? 1006, reason: this.closeInfo?.reason ?? '', remote: true });
     this.removeAllListeners();
   }
 
@@ -52,14 +67,41 @@ export class WsConnection extends EventEmitter {
 
   _readFrame() {
     const buf = this._buffer;
+    // 单连接未消费缓冲上限，避免读速远高于处理速时无限增长
+    if (buf.length > MAX_BUFFER) {
+      this.close(1009, 'buffer overflow');
+      return null;
+    }
     if (buf.length < 2) return null;
     const b0 = buf[0];
     const b1 = buf[1];
+    const rsv = b0 & 0x70;
     const fin = (b0 & 0x80) !== 0;
     const opcode = b0 & 0x0f;
     const masked = (b1 & 0x80) !== 0;
     let length = b1 & 0x7f;
     let offset = 2;
+
+    // 未协商扩展，RSV 位必须为 0
+    if (rsv !== 0) {
+      this.close(1002, 'rsv bits set');
+      return null;
+    }
+    // RFC 6455：客户端发往服务端的帧必须掩码
+    if (!masked) {
+      this.close(1002, 'unmasked frame');
+      return null;
+    }
+    // 控制帧必须 FIN 且长度 <= 125
+    if (opcode >= 0x8 && (!fin || length > 125)) {
+      this.close(1002, 'bad control frame');
+      return null;
+    }
+    // 保留操作码
+    if ([0x3, 0x4, 0x5, 0x6, 0x7, 0xb, 0xc, 0xd, 0xe, 0xf].includes(opcode)) {
+      this.close(1002, 'reserved opcode');
+      return null;
+    }
 
     if (length === 126) {
       if (buf.length < offset + 2) return null;
@@ -80,19 +122,14 @@ export class WsConnection extends EventEmitter {
       return null;
     }
 
-    let mask = null;
-    if (masked) {
-      if (buf.length < offset + 4) return null;
-      mask = buf.subarray(offset, offset + 4);
-      offset += 4;
-    }
+    if (buf.length < offset + 4) return null;
+    const mask = buf.subarray(offset, offset + 4);
+    offset += 4;
     if (buf.length < offset + length) return null;
 
     let payload = buf.subarray(offset, offset + length);
-    if (mask) {
-      payload = Buffer.from(payload);
-      for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
-    }
+    payload = Buffer.from(payload);
+    for (let i = 0; i < payload.length; i++) payload[i] ^= mask[i & 3];
     this._buffer = buf.subarray(offset + length);
     return { fin, opcode, payload };
   }
@@ -106,9 +143,12 @@ export class WsConnection extends EventEmitter {
         this.isAlive = true;
         this.emit('pong');
         break;
-      case OP.CLOSE:
-        this.close(1000, '');
+      case OP.CLOSE: {
+        const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
+        const reason = payload.length > 2 ? payload.subarray(2).toString('utf8') : '';
+        this.close(code, reason, true);
         break;
+      }
       case OP.TEXT:
       case OP.BINARY:
         if (fin) {
@@ -119,17 +159,34 @@ export class WsConnection extends EventEmitter {
         }
         break;
       case OP.CONT:
+        // 没有起始分片就收到 CONT：丢弃状态并要求重连
+        if (this._fragmentOp === null) {
+          this.close(1002, 'unexpected continuation');
+          return;
+        }
         this._fragments.push(payload);
+        // 分片数量与累计长度都受限，避免无限累积
+        if (this._fragments.length > MAX_FRAGMENTS || this._fragmentSize() > MAX_PAYLOAD) {
+          this._fragments = [];
+          this._fragmentOp = null;
+          this.close(1009, 'too many fragments');
+          return;
+        }
         if (fin) {
           const full = Buffer.concat(this._fragments);
+          const op = this._fragmentOp;
           this._fragments = [];
-          this._deliver(this._fragmentOp, full);
           this._fragmentOp = null;
+          this._deliver(op, full);
         }
         break;
       default:
         this.close(1002, 'unknown opcode');
     }
+  }
+
+  _fragmentSize() {
+    return this._fragments.reduce((n, b) => n + b.length, 0);
   }
 
   _deliver(opcode, payload) {
@@ -161,12 +218,19 @@ export class WsConnection extends EventEmitter {
     }
     header[0] = 0x80 | opcode;
     try {
-      this.socket.write(Buffer.concat([header, payload]));
-      return true;
+      const ok = this.socket.write(Buffer.concat([header, payload]));
+      // 背压：写缓冲超过阈值时标记，由上层决定丢消息还是断连
+      this._writable = this.socket.writableLength < 1024 * 1024;
+      return ok;
     } catch {
       this._teardown();
       return false;
     }
+  }
+
+  /** 对端写缓冲是否还在健康范围内 */
+  get writable() {
+    return this._writable && !this.socket.destroyed && this.socket.writableLength < 4 * 1024 * 1024;
   }
 
   send(text) {
@@ -181,12 +245,13 @@ export class WsConnection extends EventEmitter {
     return this._send(OP.PING, Buffer.alloc(0));
   }
 
-  close(code = 1000, reason = '') {
+  close(code = 1000, reason = '', remote = false) {
     if (!this.open) return;
-    const payload = Buffer.alloc(2 + Buffer.byteLength(reason));
-    payload.writeUInt16BE(code, 0);
-    payload.write(reason, 2);
-    this._send(OP.CLOSE, payload);
+    this.closeInfo = { code, reason };
+    const body = Buffer.alloc(2 + Buffer.byteLength(reason));
+    body.writeUInt16BE(code, 0);
+    body.write(reason, 2);
+    this._send(OP.CLOSE, body);
     this.open = false;
     try {
       this.socket.end();
@@ -194,38 +259,71 @@ export class WsConnection extends EventEmitter {
       /* ignore */
     }
     // 主动关闭也要触发 close 事件，保证上层能清理连接集合
-    this.emit('close');
+    this.emit('close', { code, reason, remote });
     this.removeAllListeners();
   }
 }
 
 /** 挂到已有 http.Server 的 upgrade 事件上 */
-export function attachWebSocket(server, { path = '/ws', onConnection, verifyClient, onReady } = {}) {
+export function attachWebSocket(server, { path = '/ws', onConnection, verifyClient, onReady, heartbeatMs = 25_000, maxTotal = 500, maxPerIp = 6 } = {}) {
   const clients = new Set();
   const log = (msg) => server.emit('ws:log', msg);
   onReady?.(clients);
 
-  server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (url.pathname !== path) {
-      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
+  const ipCount = new Map();
+  const countPerIp = (ip) => ipCount.get(ip) || 0;
+  const bumpIp = (ip, delta) => {
+    const next = countPerIp(ip) + delta;
+    if (next <= 0) ipCount.delete(ip);
+    else ipCount.set(ip, next);
+  };
+  const releaseIp = (conn) => {
+    if (conn._ipCounted) {
+      bumpIp(conn._ipAddress, -1);
+      conn._ipCounted = false;
     }
+  };
+
+  const reject = (socket, status, message) => {
+    const body = `${message}\n`;
+    socket.write(
+      `HTTP/1.1 ${status} ${message}\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+    );
+    socket.destroy();
+  };
+
+  server.on('upgrade', (req, socket, head) => {
+    // 与 HTTP 层相同的空闲超时，防止半开连接堆积
+    socket.setTimeout(120_000, () => socket.destroy());
+
+    let url;
+    try {
+      url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    } catch {
+      return reject(socket, '400 Bad Request', 'Bad Request');
+    }
+    if (url.pathname !== path) return reject(socket, '404 Not Found', 'Not Found');
     const key = req.headers['sec-websocket-key'];
     const upgrade = String(req.headers.upgrade || '').toLowerCase();
-    if (upgrade !== 'websocket' || !key) {
-      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
-      socket.destroy();
-      return;
+    if (upgrade !== 'websocket' || !key) return reject(socket, '400 Bad Request', 'Bad Request');
+    // 握手响应必须与客户端请求的版本一致
+    if (String(req.headers['sec-websocket-version'] || '') !== '13') {
+      return reject(socket, '426 Upgrade Required', 'Upgrade Required');
     }
+
+    if (maxTotal > 0 && clients.size >= maxTotal) {
+      return reject(socket, '503 Service Unavailable', 'Server Full');
+    }
+    const ip = String(
+      String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || socket.remoteAddress || 'unknown',
+    );
+    if (maxPerIp > 0 && countPerIp(ip) >= maxPerIp) {
+      return reject(socket, '429 Too Many Requests', 'Too Many Connections');
+    }
+
     if (verifyClient) {
       const ok = verifyClient(req, url);
-      if (!ok) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
-        socket.destroy();
-        return;
-      }
+      if (!ok) return reject(socket, '401 Unauthorized', 'Unauthorized');
     }
 
     const accept = crypto
@@ -243,30 +341,45 @@ export function attachWebSocket(server, { path = '/ws', onConnection, verifyClie
 
     const conn = new WsConnection(socket, req);
     conn.query = url.searchParams;
+    conn._ipAddress = ip;
+    conn._ipCounted = true;
+    bumpIp(ip, 1);
     clients.add(conn);
-    conn.on('close', () => clients.delete(conn));
+    const drop = () => {
+      clients.delete(conn);
+      releaseIp(conn);
+    };
+    conn.on('close', drop);
     if (head?.length) conn._onData(head);
     onConnection?.(conn, clients);
     log(`客户端接入，当前连接数 ${clients.size}`);
   });
 
-  // 心跳
+  // 心跳：先 ping，超时未回 pong 的连接直接断开
   const interval = setInterval(() => {
     for (const c of clients) {
+      if (!c.open) {
+        clients.delete(c);
+        releaseIp(c);
+        continue;
+      }
       if (!c.isAlive) {
         c.close(1001, 'no pong');
         clients.delete(c);
+        releaseIp(c);
         continue;
       }
       c.isAlive = false;
       c.ping();
     }
-  }, 30_000);
+  }, heartbeatMs);
   interval.unref?.();
 
   server.on('close', () => {
     clearInterval(interval);
     for (const c of clients) c.close(1001, 'server shutdown');
+    clients.clear();
+    ipCount.clear();
   });
 
   return clients;

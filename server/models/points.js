@@ -20,6 +20,7 @@ export const RULES = {
   create_short: { delta: 1, detail: '创建短链' },
   receive_like: { delta: 1, detail: '文章被点赞' },
   comment_liked: { delta: 2, detail: '评论被点赞' },
+  chat_message: { delta: 2, detail: '聊天室发言' },
   complete_profile: { delta: 15, detail: '完善个人资料' },
 };
 
@@ -31,6 +32,7 @@ const DAILY_CAP = {
   create_short: 20,
   receive_like: 50,
   comment_liked: 30,
+  chat_message: 20,
 };
 
 function today() {

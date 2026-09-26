@@ -4,6 +4,7 @@ import * as stats from '../models/stats.js';
 import * as comments from '../models/comments.js';
 import * as posts from '../models/posts.js';
 import * as messages from '../models/messages.js';
+import * as chat from '../models/chat.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
@@ -125,16 +126,127 @@ router.get('/users/:username', async (ctx) => {
 
 /* ================= 聊天室 REST ================= */
 
-router.get('/chat/history', async (ctx) => {
-  const room = v.str(ctx.query.room, '房间', { max: 20, required: false }) || 'lobby';
-  ctx.ok({ items: messages.history(room, ctx.user?.id || null, 60), online: messages.online() });
+/** 房间列表（含未读数），游客 unread 恒为 0 */
+router.get('/chat/rooms', async (ctx) => {
+  ctx.ok({ items: chat.listRoomsWithUnread(chat.roomCounts(), ctx.user?.id || null) });
 });
 
-router.post('/chat/messages', async (ctx) => {
-  const body = v.str(ctx.body.body, '消息', { max: 1000, trim: false });
-  const nickname = ctx.user?.nickname || ctx.user?.username || v.str(ctx.body.nickname, '昵称', { max: 20 });
-  const message = messages.add({ nickname, body, userId: ctx.user?.id || null });
-  ctx.created({ message });
+/** 房间详情 */
+router.get('/chat/rooms/:slug', async (ctx) => {
+  const room = chat.findRoom(ctx.params.slug);
+  if (!room) throw HttpError.notFound('房间不存在');
+  ctx.ok({ room });
+});
+
+/** 房间创建（登录） */
+router.post('/chat/rooms', async (ctx) => {
+  if (!ctx.user) throw HttpError.unauthorized();
+  const name = v.str(ctx.body.name, '房间名称', { min: 1, max: 24 });
+  const topic = v.str(ctx.body.topic, '房间主题', { required: false, max: 80 }) || '';
+  ctx.created({ room: chat.createRoom({ name, topic, createdBy: ctx.user.id }) });
+});
+
+/** 分页历史：before 传上一页最早一条的 createdAt */
+router.get('/chat/history', async (ctx) => {
+  const room = v.str(ctx.query.room, '房间', { max: 20, required: false }) || chat.SYSTEM_ROOM;
+  if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
+  const limit = v.int(ctx.query.limit, '条数', { min: 1, max: 120, fallback: 50 });
+  const before = v.str(ctx.query.before, '游标', { required: false, max: 40 }) || null;
+  ctx.ok({
+    room,
+    ...messages.history(
+      room,
+      { id: ctx.user?.id || null, role: ctx.user?.role || null, actor: ctx.user ? chat.actorKey({ userId: ctx.user.id, nickname: '' }) : null },
+      { limit, before },
+    ),
+  });
+});
+
+/** 未读数 */
+router.get('/chat/unread', async (ctx) => {
+  if (!ctx.user) throw HttpError.unauthorized();
+  const items = chat.listRoomsWithUnread(chat.roomCounts(), ctx.user.id);
+  ctx.ok({ items: items.map((r) => ({ room: r.slug, unread: r.unread })), total: items.reduce((n, r) => n + r.unread, 0) });
+});
+
+/** 标记已读 */
+router.post('/chat/read', async (ctx) => {
+  if (!ctx.user) throw HttpError.unauthorized();
+  const room = v.str(ctx.body.room, '房间', { max: 20, required: false }) || chat.SYSTEM_ROOM;
+  if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
+  chat.markRead(ctx.user.id, room);
+  ctx.ok({ room, unread: 0 });
+});
+
+/** 消息内搜索（仅管理员） */
+router.get('/admin/chat/messages', async (ctx) => {
+  requireAdmin(ctx);
+  const q = v.str(ctx.query.q, '关键词', { required: false, max: 40 }) || '';
+  const room = v.str(ctx.query.room, '房间', { required: false, max: 20 }) || null;
+  const kind = v.str(ctx.query.kind, '类型', { required: false, max: 10 }) || null;
+  const limit = v.int(ctx.query.limit, '条数', { min: 1, max: 120, fallback: 50 });
+  ctx.ok({ items: messages.search({ q, room, kind, limit }) });
+});
+
+/** 聊天室管理总览（仅管理员） */
+router.get('/admin/chat', async (ctx) => {
+  requireAdmin(ctx);
+  ctx.ok({
+    rooms: chat.listRooms(chat.roomCounts(), null),
+    mutes: chat.listMutes(),
+    ...chat.stats(),
+  });
+});
+
+/** 新建房间（仅管理员） */
+router.post('/admin/chat/rooms', async (ctx) => {
+  requireAdmin(ctx);
+  const name = v.str(ctx.body.name, '房间名称', { min: 1, max: 24 });
+  const topic = v.str(ctx.body.topic, '房间主题', { required: false, max: 80 }) || '';
+  ctx.created({ room: chat.createRoom({ name, topic, createdBy: ctx.user.id }) });
+});
+
+/** 编辑房间（仅管理员，系统房间除外） */
+router.patch('/admin/chat/rooms/:slug', async (ctx) => {
+  requireAdmin(ctx);
+  try {
+    const room = chat.updateRoom(ctx.params.slug, {
+      name: ctx.body.name,
+      topic: ctx.body.topic,
+      sort: ctx.body.sort,
+      kind: ctx.body.kind,
+    });
+    if (!room) throw HttpError.notFound('房间不存在');
+    ctx.ok({ room });
+  } catch (err) {
+    throw HttpError.badRequest(err.message);
+  }
+});
+
+/** 删除房间（仅管理员，系统房间除外） */
+router.delete('/admin/chat/rooms/:slug', async (ctx) => {
+  requireAdmin(ctx);
+  if (!chat.deleteRoom(ctx.params.slug)) throw HttpError.badRequest('房间不存在或系统房间不可删除');
+  ctx.ok({ ok: true });
+});
+
+/** 禁言（仅管理员，target 传昵称） */
+router.post('/admin/chat/mute', async (ctx) => {
+  requireAdmin(ctx);
+  const target = v.str(ctx.body.target, '目标昵称', { min: 1, max: 20 });
+  const minutes = v.int(ctx.body.minutes, '分钟', { min: 0, max: 10080, fallback: 10 });
+  const reason = v.str(ctx.body.reason, '原因', { required: false, max: 80 }) || '管理员禁言';
+  const name = chat.sanitizeNickname(target, '');
+  if (!name) throw HttpError.badRequest('目标昵称无效');
+  ctx.created({ mute: chat.mute({ target: `g:${name}`, minutes, reason, createdBy: ctx.user.id }), target: name });
+});
+
+/** 解除禁言（仅管理员） */
+router.delete('/admin/chat/mute', async (ctx) => {
+  requireAdmin(ctx);
+  const target = v.str(ctx.query.target, '目标昵称', { min: 1, max: 20 });
+  const name = chat.sanitizeNickname(target, '');
+  ctx.ok({ ok: chat.unmute(`g:${name}`), target: name });
 });
 
 /* ================= 管理后台 ================= */

@@ -70,6 +70,27 @@ export const config = {
     bodyBytes: 2 * 1024 * 1024,
     jsonDepth: 12,
   },
+  chat: {
+    // 消息体上限：超过直接拒绝，不再静默截断
+    bodyMax: num(process.env.CHAT_BODY_MAX, 2000),
+    // 每个房间持久化保留的消息条数
+    keepPerRoom: num(process.env.CHAT_KEEP_PER_ROOM, 500),
+    // 历史分页每页条数 / 单次加载上限
+    pageSize: 50,
+    pageMax: 120,
+    // 首次握手下发的历史条数
+    historyOnReady: 50,
+    // 限流：滑动窗口内的最大发言数
+    rateWindowMs: num(process.env.CHAT_RATE_WINDOW_MS, 5000),
+    rateMax: num(process.env.CHAT_RATE_MAX, 8),
+    // 连接上限（单 IP / 全局），防止刷连接耗尽资源
+    maxPerIp: num(process.env.CHAT_MAX_PER_IP, 6),
+    maxTotal: num(process.env.CHAT_MAX_TOTAL, 500),
+    // 指令与反应
+    reactions: ['👍', '❤️', '😂', '🎉', '🚀', '👀', '🙏', '🤔'],
+    // 心跳
+    heartbeatMs: num(process.env.CHAT_HEARTBEAT_MS, 25_000),
+  },
   site: {
     name: 'Hub',
     tagline: '一个 Node.js 驱动的全栈综合站点',
