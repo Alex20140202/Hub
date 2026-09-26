@@ -27,6 +27,7 @@
 .btn-outline-danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .btn-outline-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 .btn-sm { padding: 5px 11px; font-size: 0.81rem; border-radius: var(--radius-sm); }
+.input-sm { padding: 5px 9px; font-size: 0.82rem; border-radius: var(--radius-sm); }
 .btn-lg { padding: 12px 22px; font-size: 0.98rem; border-radius: var(--radius-lg); }
 .btn-block { width: 100%; }
 .btn-icon { padding: 0; width: 34px; height: 34px; border-radius: var(--radius-sm); }
@@ -66,6 +67,14 @@
 .chip.active { background: var(--brand); border-color: var(--brand); color: #fff; }
 .chip:disabled { opacity: 0.55; cursor: not-allowed; }
 .chip:disabled:hover { border-color: var(--border); color: var(--text-soft); }
+
+.tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: var(--radius-full);
+  font-size: 0.72rem; font-weight: 600; line-height: 1.5;
+  background: var(--surface-3); color: var(--text-soft); border: 1px solid var(--border);
+}
+.tag-sm { padding: 1px 6px; font-size: 0.68rem; }
 
 /* ---------- 表单 ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: var(--sp-4); }

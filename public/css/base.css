@@ -72,6 +72,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-6) 0; }
 .nowrap { white-space: nowrap; }
 .center { text-align: center; }
 .row { display: flex; align-items: center; gap: var(--sp-3); }
+.gap-1 { gap: var(--sp-1); }
+.gap-2 { gap: var(--sp-2); }
 .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
 .col { display: flex; flex-direction: column; gap: var(--sp-3); }
 .wrap { flex-wrap: wrap; }
