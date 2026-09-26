@@ -12,7 +12,7 @@
 
 ```bash
 node -v            # 需要 Node.js >= 22.5（推荐 24/26 LTS）
-npm start          # 启动服务，默认 http://localhost:3000
+npm start          # 启动服务，默认 http://localhost:3535
 ```
 
 首次启动会自动建库、执行迁移并写入种子数据，终端会打印管理员与演示账号。
@@ -41,7 +41,7 @@ npm run seed       # 仅在数据库为空时写入种子数据
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `PORT` | `3000` | 监听端口 |
+| `PORT` | `3535` | 监听端口 |
 | `HOST` | `0.0.0.0` | 监听地址 |
 | `NODE_ENV` | `development` | `production` 时隐藏错误堆栈、要求 `JWT_SECRET` |
 | `JWT_SECRET` | 开发环境按项目路径派生 | **生产环境必须设置**，否则重启后会话失效 |
@@ -54,7 +54,7 @@ npm run seed       # 仅在数据库为空时写入种子数据
 示例：
 
 ```bash
-NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=8080 npm start
+NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 ```
 
 ---
