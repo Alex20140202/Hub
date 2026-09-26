@@ -166,12 +166,15 @@ export default async function chatView(host, ctx = {}) {
     ]),
   ]);
 
+  // 整页纵向 flex：标题自适应高度，卡片吃掉剩余空间（见 chat.css 的 .chat-page）
   host.append(
-    el('div.page-head', {}, [
-      el('h1', {}, '实时聊天室'),
-      el('p', {}, '服务端手写 WebSocket（RFC 6455），多房间 · 输入中提示 · 表情回应 · 引用回复 · 断线重连与离线补发。'),
+    el('div.chat-page', {}, [
+      el('div.page-head', {}, [
+        el('h1', {}, '实时聊天室'),
+        el('p', {}, '服务端手写 WebSocket（RFC 6455），多房间 · 输入中提示 · 表情回应 · 引用回复 · 断线重连与离线补发。'),
+      ]),
+      el('div.card.chat-card', { style: { padding: '0', overflow: 'hidden' } }, shell),
     ]),
-    el('div.card.chat-card', { style: { padding: '0', overflow: 'hidden' } }, shell),
   );
 
   const roomInfoBox = shell.querySelector('.chat-roominfo');
