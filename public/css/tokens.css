@@ -1,0 +1,92 @@
+/* ============ 设计令牌 ============ */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.84rem);
+  --step-0: clamp(0.92rem, 0.9rem + 0.1vw, 1rem);
+  --step-1: clamp(1.1rem, 1.05rem + 0.3vw, 1.28rem);
+  --step-2: clamp(1.35rem, 1.2rem + 0.7vw, 1.7rem);
+  --step-3: clamp(1.7rem, 1.4rem + 1.4vw, 2.4rem);
+  --step-4: clamp(2.1rem, 1.5rem + 2.6vw, 3.4rem);
+
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+  --sp-8: 4.5rem;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-full: 999px;
+
+  --brand-h: 243;
+  --brand: hsl(var(--brand-h) 75% 60%);
+  --brand-strong: hsl(var(--brand-h) 70% 50%);
+  --brand-soft: hsl(var(--brand-h) 85% 96%);
+  --brand-text: hsl(var(--brand-h) 70% 45%);
+  --accent: #22d3ee;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  --container: 1200px;
+  --header-h: 62px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur: 0.22s;
+}
+
+/* ---------- 亮色 ---------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f8fc;
+  --bg-alt: #eef1f8;
+  --surface: #ffffff;
+  --surface-2: #fafbfe;
+  --surface-3: #f2f4fa;
+  --overlay: rgba(15, 23, 42, 0.45);
+  --border: #e3e7f0;
+  --border-strong: #cbd3e3;
+  --text: #101728;
+  --text-soft: #47536b;
+  --text-muted: #7c879d;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow: 0 6px 20px -6px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.05);
+  --shadow-lg: 0 24px 60px -20px rgba(16, 24, 40, 0.28);
+  --glass: rgba(255, 255, 255, 0.78);
+  --code-bg: #0f172a;
+  --code-text: #e2e8f0;
+  --chart-grid: #e8ecf5;
+}
+
+/* ---------- 暗色 ---------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #080b14;
+  --bg-alt: #0d1220;
+  --surface: #111827;
+  --surface-2: #151c2c;
+  --surface-3: #1b2434;
+  --overlay: rgba(2, 6, 18, 0.7);
+  --border: #222c42;
+  --border-strong: #33415c;
+  --text: #e8edf7;
+  --text-soft: #a7b2c7;
+  --text-muted: #6b7793;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.75);
+  --glass: rgba(17, 24, 39, 0.72);
+  --brand-soft: hsl(var(--brand-h) 60% 18%);
+  --brand-text: hsl(var(--brand-h) 85% 74%);
+  --code-bg: #0b1220;
+  --code-text: #dbe4f5;
+  --chart-grid: #1e2839;
+}

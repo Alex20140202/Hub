@@ -1,0 +1,605 @@
+import { el, clear } from '../lib/dom.js';
+import { AdminAPI, StatsAPI, PostAPI } from '../lib/api.js';
+import { numberFmt, dateShort, timeAgo, humanSize } from '../lib/format.js';
+import { avatar, badge, tabs, statCard, skeleton, empty, statusBadge } from '../ui/components.js';
+import { lineChart, barChart, donutChart, chartLegend, heatmap } from '../ui/chart.js';
+import { toast } from '../ui/toast.js';
+import { confirmDialog, modal } from '../ui/modal.js';
+
+const TABS = [
+  { key: 'dashboard', label: '📊 总览' },
+  { key: 'posts', label: '📄 内容' },
+  { key: 'comments', label: '💬 评论审核' },
+  { key: 'users', label: '👥 用户' },
+  { key: 'links', label: '🔗 短链' },
+  { key: 'subscribers', label: '✉️ 订阅' },
+  { key: 'settings', label: '⚙️ 站点设置' },
+  { key: 'maintenance', label: '🛠 维护' },
+];
+
+export default async function adminView(host) {
+  host.replaceChildren(skeleton(3));
+  let current = 'dashboard';
+  const panel = el('div');
+
+  host.append(
+    el('div.page-head', {}, [
+      el('div.row-between.wrap', {}, [
+        el('div', {}, [el('h1', {}, '管理后台'), el('p', {}, '站点数据、用户与内容管理')]),
+        el('span.badge.badge-danger', {}, '仅管理员可见'),
+      ]),
+    ]),
+    el('div.card', { style: { padding: '0 16px' } }, [
+      el('div', { style: { overflowX: 'auto' } }, [
+        tabs(TABS, current, (key) => {
+          current = key;
+          render();
+        }),
+      ]),
+    ]),
+    el('div', { style: { marginTop: '20px' } }, panel),
+  );
+
+  async function render() {
+    clear(panel);
+    panel.append(skeleton(2));
+    try {
+      if (current === 'dashboard') await renderDashboard();
+      else if (current === 'posts') await renderPosts();
+      else if (current === 'comments') await renderComments();
+      else if (current === 'users') await renderUsers();
+      else if (current === 'links') await renderLinks();
+      else if (current === 'subscribers') await renderSubscribers();
+      else if (current === 'settings') await renderSettings();
+      else await renderMaintenance();
+    } catch (err) {
+      clear(panel);
+      panel.append(el('div.alert.alert-danger', {}, err.message));
+    }
+  }
+
+  /* ---------------- 总览 ---------------- */
+  async function renderDashboard() {
+    const [data, heat, dash] = await Promise.all([
+      AdminAPI.overview(),
+      StatsAPI.heatmap().catch(() => ({ items: [] })),
+      StatsAPI.dashboard().catch(() => ({ trend: [], topPosts: [] })),
+    ]);
+    const s = data.stats;
+    const top = dash.topPosts || [];
+
+    clear(panel);
+    panel.append(
+      el('div.stat-grid', {}, [
+        statCard({ label: '已发布文章', value: s.posts, icon: '📄', hint: `${s.drafts} 篇草稿` }),
+        statCard({ label: '注册用户', value: s.users, icon: '👤' }),
+        statCard({ label: '总阅读量', value: s.views, icon: '👁' }),
+        statCard({ label: '评论', value: s.comments, icon: '💬', hint: `${s.pendingComments} 待审` }),
+        statCard({ label: '短链点击', value: s.shortClicks, icon: '🔗', hint: `${s.shortLinks} 条` }),
+        statCard({ label: '文件', value: s.files, icon: '📁', hint: humanSize(s.storage) }),
+        statCard({ label: '聊天室消息', value: s.messages, icon: '💭' }),
+        statCard({ label: '订阅用户', value: s.subscribers, icon: '✉️' }),
+      ]),
+
+      el('div.grid.grid-sidebar', { style: { marginTop: '20px' } }, [
+        el('div.col', { style: { gap: '20px' } }, [
+          el('div.card', {}, [
+            el('div.card-title', {}, '📈 近 30 天活跃趋势'),
+            lineChart(dash.trend || [], { height: 240 }),
+          ]),
+          el('div.card', {}, [
+            el('div.card-title', {}, '🕓 行为类型分布'),
+            data.types.length
+              ? barChart(
+                  data.types.slice(0, 10).map((t) => ({ label: t.type, value: t.c })),
+                  { height: 220 },
+                )
+              : el('p.muted.small', {}, '暂无数据'),
+          ]),
+          el('div.card', {}, [
+            el('div.card-title', {}, '🔥 热门内容'),
+            top.length
+              ? el('div.table-wrap', {}, [
+                  el('table', {}, [
+                    el('thead', {}, el('tr', {}, [
+                      el('th', {}, '标题'),
+                      el('th', {}, '作者'),
+                      el('th', {}, '阅读'),
+                      el('th', {}, '点赞'),
+                      el('th', {}, '评论'),
+                      el('th', {}, '发布时间'),
+                    ])),
+                    el('tbody', {}, top.map((p) =>
+                      el('tr', {}, [
+                        el('td', {}, el('a.truncate', {
+                          href: `#/blog/${p.slug}`,
+                          style: { maxWidth: '300px', display: 'block', color: 'var(--text)' },
+                        }, p.title)),
+                        el('td.small', {}, p.author?.nickname || p.author?.username || '—'),
+                        el('td', {}, numberFmt(p.views)),
+                        el('td', {}, String(p.likes ?? 0)),
+                        el('td', {}, String(p.comment_count ?? p.comments ?? 0)),
+                        el('td.small.muted', {}, dateShort(p.published_at)),
+                      ]),
+                    )),
+                  ]),
+                ])
+              : el('p.muted.small', {}, '暂无内容数据'),
+          ]),
+        ]),
+        el('div.col', { style: { gap: '16px' } }, [
+          el('div.card', {}, [
+            el('div.card-title', {}, '⚡ 待处理'),
+            el('div.col', { style: { gap: '8px' } }, [
+              actionRow('待审核评论', s.pendingComments, () => {
+                current = 'comments';
+                render();
+              }),
+              actionRow('草稿文章', s.drafts, () => {
+                current = 'posts';
+                render();
+              }),
+              actionRow('停用短链', data.shorts.filter((x) => !x.active).length, () => {
+                current = 'links';
+                render();
+              }),
+            ]),
+          ]),
+          el('div.card', {}, [
+            el('div.card-title', {}, '🗓 活跃热力图（90 天）'),
+            heatmap(heat.items || []),
+          ]),
+          el('div.card', {}, [
+            el('div.card-title', {}, '📊 内容占比'),
+            donutChart(
+              [
+                { label: '文章', value: s.posts },
+                { label: '笔记', value: s.notes },
+                { label: '待办', value: s.todos },
+                { label: '书签', value: s.links },
+                { label: '文件', value: s.files },
+              ],
+              { size: 160 },
+            ),
+            el('div', { style: { marginTop: '12px' } }, chartLegend([
+              { label: '文章', value: s.posts },
+              { label: '笔记', value: s.notes },
+              { label: '待办', value: s.todos },
+              { label: '书签', value: s.links },
+              { label: '文件', value: s.files },
+            ])),
+          ]),
+        ]),
+      ]),
+    );
+  }
+
+  function actionRow(label, count, onClick) {
+    return el('button.row-between', {
+      type: 'button',
+      style: { width: '100%', padding: '8px 10px', borderRadius: '8px' },
+      onclick: onClick,
+    }, [
+      el('span.soft', {}, label),
+      badge(String(count), count > 0 ? 'warning' : ''),
+    ]);
+  }
+
+  /* ---------------- 内容 ---------------- */
+  async function renderPosts() {
+    const data = await PostAPI.list({ page: 1, size: 20, status: 'all', sort: 'new' });
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.row-between', { style: { marginBottom: '12px' } }, [
+          el('div.card-title', { style: { margin: '0' } }, `内容管理 · 共 ${data.total} 篇`),
+          el('a.btn.btn-ghost.btn-sm', { href: '#/blog' }, '前台查看'),
+        ]),
+        el('div.table-wrap', {}, [
+          el('table', {}, [
+            el('thead', {}, el('tr', {}, [el('th', {}, '标题'), el('th', {}, '作者'), el('th', {}, '状态'), el('th', {}, '数据'), el('th', {}, '操作')])),
+            el('tbody', {}, data.items.map((p) =>
+              el('tr', {}, [
+                el('td', {}, el('a.truncate', { href: `#/blog/${p.slug}`, target: '_blank', style: { maxWidth: '300px', display: 'block', color: 'var(--text)' } }, p.title)),
+                el('td.small', {}, p.author.nickname || p.author.username),
+                el('td', {}, badge(p.status === 'published' ? '已发布' : '草稿', p.status === 'published' ? 'success' : 'warning')),
+                el('td.small.muted', {}, `👁 ${numberFmt(p.views)} · ♥ ${p.likes}`),
+                el('td', {}, el('div.row', { style: { gap: '4px' } }, [
+                  el('button.icon-btn', {
+                    type: 'button',
+                    title: p.featured ? '取消精选' : '设为精选',
+                    onclick: async () => {
+                      try {
+                        await AdminAPI.feature(p.id);
+                        toast.success('已更新精选状态');
+                        render();
+                      } catch (err) {
+                        toast.error(err.message);
+                      }
+                    },
+                  }, p.featured ? '⭐' : '☆'),
+                  el('a.icon-btn', { href: `#/blog/${p.slug}/edit`, title: '编辑' }, '✏️'),
+                  el('button.icon-btn', {
+                    type: 'button',
+                    title: '删除',
+                    onclick: async () => {
+                      if (!(await confirmDialog({ title: '删除文章', message: `确定删除《${p.title}》？`, confirmText: '删除', danger: true }))) return;
+                      try {
+                        await PostAPI.remove(p.id);
+                        toast.success('已删除');
+                        render();
+                      } catch (err) {
+                        toast.error(err.message);
+                      }
+                    },
+                  }, '🗑'),
+                ])),
+              ]),
+            )),
+          ]),
+        ]),
+      ]),
+    );
+  }
+
+  /* ---------------- 评论审核 ---------------- */
+  async function renderComments() {
+    const statuses = [
+      { value: 'pending', label: '待审核' },
+      { value: 'published', label: '已发布' },
+      { value: 'spam', label: '垃圾' },
+    ];
+    let status = 'pending';
+    const listNode = el('div');
+
+    async function load() {
+      listNode.replaceChildren(skeleton(2));
+      const data = await AdminAPI.comments(status);
+      clear(listNode);
+      if (!data.items.length) {
+        listNode.append(empty('没有待处理的评论', '', null, '✅'));
+        return;
+      }
+      for (const c of data.items) {
+        listNode.append(
+          el('div.card.pad-sm', { style: { marginBottom: '10px' } }, [
+            el('div.row.wrap', { style: { gap: '8px', marginBottom: '6px' } }, [
+              avatar(c, 'sm'),
+              el('strong', {}, c.nickname || c.username || c.guest_name || '匿名'),
+              c.username ? el('span.small.muted', {}, `@${c.username}`) : el('span.small.muted', {}, '游客'),
+              el('span.grow'),
+              statusBadge(c.status),
+              el('span.small.muted', {}, timeAgo(c.createdAt)),
+            ]),
+            el('div', { style: { whiteSpace: 'pre-wrap', fontSize: '0.9rem', marginBottom: '8px' } }, c.body),
+            el('div.row-between.wrap', {}, [
+              el('a.small.muted.truncate', { href: `#/blog/${c.postSlug}`, style: { maxWidth: '50%' } }, `在：${c.postTitle}`),
+              el('div.row', { style: { gap: '6px' } }, [
+                el('button.btn.btn-ghost.btn-sm', {
+                  type: 'button',
+                  onclick: async () => {
+                    try {
+                      await AdminAPI.setCommentStatus(c.id, 'published');
+                      toast.success('已通过');
+                      load();
+                    } catch (err) {
+                      toast.error(err.message);
+                    }
+                  },
+                }, '✓ 通过'),
+                el('button.btn.btn-ghost.btn-sm', {
+                  type: 'button',
+                  onclick: async () => {
+                    try {
+                      await AdminAPI.setCommentStatus(c.id, 'spam');
+                      toast.success('已标记为垃圾');
+                      load();
+                    } catch (err) {
+                      toast.error(err.message);
+                    }
+                  },
+                }, '🚫 垃圾'),
+                el('button.btn.btn-outline-danger.btn-sm', {
+                  type: 'button',
+                  onclick: async () => {
+                    if (!(await confirmDialog({ title: '删除评论', message: '永久删除这条评论？', confirmText: '删除', danger: true }))) return;
+                    try {
+                      await PostAPI.removeComment(c.id);
+                      toast.success('已删除');
+                      load();
+                    } catch (err) {
+                      toast.error(err.message);
+                    }
+                  },
+                }, '删除'),
+              ]),
+            ]),
+          ]),
+        );
+      }
+    }
+
+    const filterRow = el('div.row.wrap', { style: { gap: '6px', marginBottom: '16px' } });
+    const drawFilters = () => {
+      clear(filterRow);
+      for (const s of statuses) {
+        const btn = el(`button.chip${status === s.value ? '.active' : ''}`, { type: 'button' }, s.label);
+        btn.addEventListener('click', () => {
+          status = s.value;
+          drawFilters();
+          load();
+        });
+        filterRow.append(btn);
+      }
+    };
+    drawFilters();
+
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.card-title', {}, '评论审核'),
+        filterRow,
+        listNode,
+      ]),
+    );
+    load();
+  }
+
+  /* ---------------- 用户 ---------------- */
+  async function renderUsers() {
+    const data = await AdminAPI.overview();
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.card-title', {}, `用户管理 · 共 ${data.stats.users} 人`),
+        el('div.table-wrap', {}, [
+          el('table', {}, [
+            el('thead', {}, el('tr', {}, [el('th', {}, '用户'), el('th', {}, '邮箱'), el('th', {}, '角色'), el('th', {}, '文章'), el('th', {}, '注册/登录'), el('th', {}, '操作')])),
+            el('tbody', {}, data.users.map((u) =>
+              el('tr', {}, [
+                el('td', {}, el('div.row', {}, [
+                  avatar(u, 'sm'),
+                  el('a', { href: `#/u/${u.username}`, style: { color: 'var(--text)' } }, u.username),
+                ])),
+                el('td.small.muted', {}, u.email),
+                el('td', {}, badge(u.role === 'admin' ? '管理员' : u.role === 'moderator' ? '版主' : '用户', u.role === 'admin' ? 'danger' : '')),
+                el('td', {}, String(u.post_count)),
+                el('td.small.muted', {}, `${dateShort(u.created_at)} / ${u.last_login ? timeAgo(u.last_login) : '从未'}`),
+                el('td', {}, el('div.row', { style: { gap: '4px' } }, [
+                  el('button.btn.btn-ghost.btn-sm', {
+                    type: 'button',
+                    onclick: async () => {
+                      const next = u.role === 'admin' ? 'user' : 'admin';
+                      if (!(await confirmDialog({
+                        title: '调整角色',
+                        message: `将 ${u.username} 的角色改为「${next === 'admin' ? '管理员' : '普通用户'}」？`,
+                        danger: next === 'user',
+                      }))) return;
+                      try {
+                        await AdminAPI.setRole(u.id, next);
+                        toast.success('已更新');
+                        render();
+                      } catch (err) {
+                        toast.error(err.message);
+                      }
+                    },
+                  }, u.role === 'admin' ? '降级' : '升级'),
+                  el('button.icon-btn', {
+                    type: 'button',
+                    title: '删除用户',
+                    onclick: async () => {
+                      if (!(await confirmDialog({
+                        title: '删除用户',
+                        message: `删除 ${u.username} 将同时删除其全部文章、笔记、待办与书签，且不可恢复。`,
+                        confirmText: '永久删除',
+                        danger: true,
+                      }))) return;
+                      try {
+                        await AdminAPI.removeUser(u.id);
+                        toast.success('用户已删除');
+                        render();
+                      } catch (err) {
+                        toast.error(err.message);
+                      }
+                    },
+                  }, '🗑'),
+                ])),
+              ]),
+            )),
+          ]),
+        ]),
+      ]),
+    );
+  }
+
+  /* ---------------- 短链 ---------------- */
+  async function renderLinks() {
+    const data = await AdminAPI.overview();
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.card-title', {}, `短链管理 · 共 ${data.shorts.length} 条`),
+        el('div.table-wrap', {}, [
+          el('table', {}, [
+            el('thead', {}, el('tr', {}, [el('th', {}, '短码'), el('th', {}, '目标'), el('th', {}, '点击'), el('th', {}, '状态'), el('th', {}, '创建'), el('th', {}, '操作')])),
+            el('tbody', {}, data.shorts.map((s) =>
+              el('tr', {}, [
+                el('td', {}, el('a.mono', { href: `/${s.code}`, target: '_blank' }, `/${s.code}`)),
+                el('td', {}, el('span.truncate', { style: { display: 'block', maxWidth: '280px' } }, s.target)),
+                el('td', {}, String(s.clicks)),
+                el('td', {}, badge(s.active ? '启用' : '停用', s.active ? 'success' : 'warning')),
+                el('td.small.muted', {}, dateShort(s.created_at)),
+                el('td', {}, el('button.icon-btn', {
+                  type: 'button',
+                  title: '删除',
+                  onclick: async () => {
+                    if (!(await confirmDialog({ title: '删除短链', message: `确定删除 /${s.code}？`, confirmText: '删除', danger: true }))) return;
+                    try {
+                      await (await import('../lib/api.js')).ShortAPI.remove(s.id);
+                      toast.success('已删除');
+                      render();
+                    } catch (err) {
+                      toast.error(err.message);
+                    }
+                  },
+                }, '🗑')),
+              ]),
+            )),
+          ]),
+        ]),
+      ]),
+    );
+  }
+
+  /* ---------------- 订阅 ---------------- */
+  async function renderSubscribers() {
+    const data = await AdminAPI.overview();
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.card-title', {}, `订阅列表 · 共 ${data.subscribers.length} 条`),
+        data.subscribers.length
+          ? el('div.table-wrap', {}, [
+              el('table', {}, [
+                el('thead', {}, el('tr', {}, [el('th', {}, '邮箱'), el('th', {}, '来源'), el('th', {}, '状态'), el('th', {}, '订阅时间')])),
+                el('tbody', {}, data.subscribers.map((s) =>
+                  el('tr', {}, [
+                    el('td', {}, s.email),
+                    el('td', {}, badge(s.source || 'site')),
+                    el('td', {}, badge(s.status === 'pending' ? '待确认' : s.status, s.status === 'pending' ? 'warning' : 'success')),
+                    el('td.small.muted', {}, dateShort(s.created_at)),
+                  ]),
+                )),
+              ]),
+            ])
+          : empty('还没有订阅用户', '', null, '✉️'),
+      ]),
+    );
+  }
+
+  /* ---------------- 站点设置 ---------------- */
+  async function renderSettings() {
+    const data = await AdminAPI.overview();
+    const s = data.settings;
+    const fields = [
+      { key: 'site_name', label: '站点名称' },
+      { key: 'site_tagline', label: '站点标语' },
+      { key: 'site_description', label: '站点描述（首页与 SEO）' },
+      { key: 'footer_text', label: '页脚文字' },
+      { key: 'icp', label: '备案号' },
+    ];
+    const inputs = new Map();
+    const form = el('form', { onsubmit: (e) => e.preventDefault() });
+    for (const f of fields) {
+      const input = el(f.key === 'site_description' ? 'textarea.textarea' : 'input.input', {
+        rows: 3,
+        value: s[f.key] || '',
+        placeholder: `请输入${f.label}`,
+      });
+      if (f.key !== 'site_description') input.value = s[f.key] || '';
+      inputs.set(f.key, input);
+      form.append(el('div.field', {}, [el('label', {}, f.label), input]));
+    }
+    const allowReg = el('input', { type: 'checkbox' });
+    allowReg.checked = s.allow_registration !== false;
+    form.append(el('label.switch', { style: { marginBottom: '16px' } }, [allowReg, el('span.track'), el('span.small', {}, '允许新用户注册')]));
+
+    const saveBtn = el('button.btn.btn-primary', { type: 'button' }, '保存设置');
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.setAttribute('aria-busy', 'true');
+      const payload = { allow_registration: allowReg.checked };
+      for (const [key, input] of inputs) payload[key] = input.value.trim();
+      try {
+        await AdminAPI.saveSettings(payload);
+        toast.success('设置已保存，刷新后生效');
+        const { hydrate } = await import('../lib/store.js');
+        await hydrate();
+        location.reload();
+      } catch (err) {
+        toast.error(err.message);
+        saveBtn.removeAttribute('aria-busy');
+      }
+    });
+    form.append(saveBtn);
+
+    clear(panel);
+    panel.append(el('div.card', {}, [el('div.card-title', {}, '站点设置'), form]));
+  }
+
+  /* ---------------- 维护 ---------------- */
+  async function renderMaintenance() {
+    const [db, events] = await Promise.all([AdminAPI.database(), AdminAPI.events()]);
+    clear(panel);
+    panel.append(
+      el('div.card', {}, [
+        el('div.card-title', {}, '🗄 数据库表统计'),
+        el('div.table-wrap', {}, [
+          el('table', {}, [
+            el('thead', {}, el('tr', {}, [el('th', {}, '表名'), el('th', {}, '行数')])),
+            el('tbody', {}, db.tables.map((t) =>
+              el('tr', {}, [el('td.mono', {}, t.name), el('td', {}, numberFmt(t.rows))]),
+            )),
+          ]),
+        ]),
+      ]),
+      el('div.grid.grid-2', { style: { marginTop: '20px' } }, [
+        el('div.card', {}, [
+          el('div.card-title', {}, '🧹 维护操作'),
+          el('div.col', { style: { gap: '10px' } }, [
+            el('div.row-between.wrap', {}, [
+              el('div', {}, [
+                el('strong', {}, '整理数据库'),
+                el('p.small.muted', {}, '执行 VACUUM 并清理 90 天前的事件记录'),
+              ]),
+              el('button.btn.btn-ghost', {
+                type: 'button',
+                onclick: async () => {
+                  if (!(await confirmDialog({ title: '整理数据库', message: '将回收空间并删除 90 天前的事件日志，可能短暂占用 CPU。', confirmText: '开始' }))) return;
+                  try {
+                    await AdminAPI.vacuum();
+                    toast.success('整理完成');
+                    render();
+                  } catch (err) {
+                    toast.error(err.message);
+                  }
+                },
+              }, '执行'),
+            ]),
+            el('div.row-between.wrap', {}, [
+              el('div', {}, [
+                el('strong', {}, '清空聊天室'),
+                el('p.small.muted', {}, '删除大厅中的所有聊天记录'),
+              ]),
+              el('button.btn.btn-outline-danger', {
+                type: 'button',
+                onclick: async () => {
+                  if (!(await confirmDialog({ title: '清空聊天室', message: '所有聊天消息将被永久删除。', confirmText: '清空', danger: true }))) return;
+                  try {
+                    await AdminAPI.clearChat();
+                    toast.success('聊天室已清空');
+                  } catch (err) {
+                    toast.error(err.message);
+                  }
+                },
+              }, '清空'),
+            ]),
+          ]),
+        ]),
+        el('div.card', {}, [
+          el('div.card-title', {}, '📡 最近事件'),
+          el('div.list', { style: { maxHeight: '280px', overflowY: 'auto' } },
+            events.recent.map((e) =>
+              el('div.list-item', {}, [
+                badge(e.type),
+                el('span.small.muted.truncate.grow', {}, e.meta || e.target || ''),
+                el('span.small.muted.nowrap', {}, timeAgo(e.created_at)),
+              ]),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  await render();
+}
