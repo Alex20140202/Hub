@@ -571,15 +571,76 @@ try {
   {
     const history = await api('GET', '/api/chat/history');
     check('聊天室历史可读', history.status === 200 && Array.isArray(history.json?.items));
+    check('历史为分页结构', 'hasMore' in (history.json || {}) && 'cursor' in (history.json || {}));
+
+    const rooms = await api('GET', '/api/chat/rooms');
+    check('房间列表可读', rooms.status === 200 && rooms.json?.items?.length >= 4, rooms.json?.items?.map((r) => r.slug).join(','));
 
     const rest = await api('POST', '/api/chat/messages', { token: state.userToken, body: { body: 'REST 冒烟消息' } });
     eq('REST 发消息', rest.status, 201);
-    const long = await api('POST', '/api/chat/messages', { body: { body: 'x'.repeat(1200), nickname: '超长' } });
+    check('REST 发消息带 isMe', rest.json?.message?.isMe === true, String(rest.json?.message?.isMe));
+
+    // 长度上限 2000（config.chat.bodyMax）：边界放行，越界拒绝
+    const edge = await api('POST', '/api/chat/messages', { body: { body: 'x'.repeat(2000), nickname: '边界' } });
+    eq('恰好 2000 字可通过', edge.status, 201);
+    const long = await api('POST', '/api/chat/messages', { body: { body: 'x'.repeat(2001), nickname: '超长' } });
     eq('超长消息被拒绝', long.status, 400);
+
+    // 游客身份：同一昵称 + 不同 guestId 互不可编辑
+    const guestPost = await api('POST', '/api/chat/messages', {
+      body: { body: '游客冒烟消息', nickname: '同名游客', guestId: 'smokeguest0001' },
+    });
+    eq('游客可经 REST 发消息', guestPost.status, 201);
+    check('他人视角不可编辑该消息', guestPost.json?.message?.canEdit === false);
+    const guestOverreach = await api('PATCH', `/api/chat/messages/${guestPost.json?.message?.id}`, {
+      body: { body: '篡改', guestId: 'smokeguest0002' },
+    });
+    check('同名不同 guestId 无法编辑他人消息', guestOverreach.status >= 400, `status=${guestOverreach.status}`);
+
+    // REST 通道必须与 WS 共用限流器，否则可绕过浏览器端 8 次/5 秒
+    const burst = [];
+    for (let i = 0; i < 12; i++) {
+      burst.push(await api('POST', '/api/chat/messages', { body: { body: `连发 ${i}`, nickname: '刷屏', guestId: 'smokeflood0001' } }));
+    }
+    check('REST 通道同样受限流保护', burst.some((r) => r.status === 429), burst.map((r) => r.status).join(','));
+
+    // 禁言：按稳定身份禁言后发言被拒
+    const muteTarget = 'smokeguard0001';
+    const beforeMute = await api('POST', '/api/chat/messages', { body: { body: '禁言前', nickname: '被禁言者', guestId: muteTarget } });
+    eq('禁言前可以发言', beforeMute.status, 201);
+    const muteRes = await api('POST', '/api/admin/chat/mute', {
+      token: state.adminToken,
+      body: { target: muteTarget, minutes: 5, reason: '冒烟测试' },
+    });
+    eq('管理员禁言游客', muteRes.status, 201);
+    check('禁言目标解析为稳定 actor', muteRes.json?.actor === `g:${muteTarget}`, muteRes.json?.actor);
+    const muted = await api('POST', '/api/chat/messages', { body: { body: '禁言后', nickname: '被禁言者', guestId: muteTarget } });
+    check('被禁言者发言被拒', muted.status >= 400, `status=${muted.status}`);
+    const unmuteRes = await api('DELETE', `/api/admin/chat/mute?target=${muteTarget}`, { token: state.adminToken });
+    check('解除禁言', unmuteRes.status === 200 && unmuteRes.json?.ok === true);
+    const afterUnmute = await api('POST', '/api/chat/messages', { body: { body: '解除后', nickname: '被禁言者', guestId: muteTarget } });
+    eq('解除禁言后可发言', afterUnmute.status, 201);
+
+    // 管理员总览：mutes 必须是列表，不能被统计数字覆盖
+    const adminChat = await api('GET', '/api/admin/chat', { token: state.adminToken });
+    check('管理端聊天总览可读', adminChat.status === 200);
+    check('mutes 返回列表而非计数', Array.isArray(adminChat.json?.mutes), typeof adminChat.json?.mutes);
+    check('rooms 返回列表', Array.isArray(adminChat.json?.rooms));
+    check('统计含消息数与今日数', typeof adminChat.json?.messages === 'number' && typeof adminChat.json?.messagesToday === 'number');
+    const chatSearch = await api('GET', '/api/admin/chat/messages?q=%E5%86%92%E7%83%9F', { token: state.adminToken });
+    check('管理端可检索消息', chatSearch.status === 200 && chatSearch.json?.items?.length > 0, `${chatSearch.json?.items?.length} 条`);
+    const userChat = await api('GET', '/api/admin/chat', { token: state.userToken });
+    eq('普通用户访问聊天管理返回 403', userChat.status, 403);
 
     const a = await wsConnect('/ws', state.userToken);
     const b = await wsConnect('/ws');
     check('WebSocket 握手成功（两个客户端）', true);
+    await a.waitFor((m) => m.type === 'ready');
+    await b.waitFor((m) => m.type === 'ready');
+
+    // HTTP 兜底通道写入的消息必须推给在线客户端，否则前端会凭空丢消息
+    await api('POST', '/api/chat/messages', { body: { body: 'REST 广播消息', nickname: '机器人' } });
+    check('REST 写入会广播给 WS 客户端', !!(await a.waitFor((m) => m.type === 'message' && m.message?.body === 'REST 广播消息')));
 
     const presence = await a.waitFor((m) => m.type === 'presence');
     check('收到在线人数广播', typeof presence?.online === 'number', `online=${presence?.online}`);
