@@ -248,8 +248,7 @@ export default async function chatView(host, ctx = {}) {
     }
     const optimistic = clientId ? state.messages.find((m) => m.clientId === clientId && m.pending) : null;
     if (optimistic) {
-      Object.assign(optimistic, message, { pending: false, clientId: null });
-      replaceNode(optimistic);
+      settleMessage(optimistic, message);
     } else if (!state.messages.some((m) => m.id === message.id)) {
       state.messages.push(message);
       if (state.messages.length > MAX_RENDER) state.messages.splice(0, state.messages.length - MAX_RENDER);
@@ -282,10 +281,7 @@ export default async function chatView(host, ctx = {}) {
 
   client.on('settle', ({ clientId, message }) => {
     const optimistic = state.messages.find((m) => m.clientId === clientId);
-    if (optimistic) {
-      Object.assign(optimistic, message, { pending: false, clientId: null });
-      replaceNode(optimistic);
-    }
+    if (optimistic) settleMessage(optimistic, message);
   });
 
   client.on('error', (payload) => {
@@ -407,7 +403,8 @@ export default async function chatView(host, ctx = {}) {
   function renderTopbar() {
     const room = state.rooms.find((r) => r.slug === state.room);
     clear(topBar).append(
-      el('div.row', {}, [statusDot, el('strong', {}, room?.name || '聊天室'), onlineText]),
+      // statusDot / statusText / onlineText 都是常驻节点：清空前先记住，renderTopbar 每次重建
+      el('div.row', {}, [statusDot, el('strong', {}, room?.name || '聊天室'), statusText, onlineText]),
       el('div.row.gap-1', {}, [
         el('span.chat-badge', { title: '消息上限' }, `${state.messages.length}/${MAX_RENDER}`),
         el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => client.reconnectNow() }, '重新连接'),
@@ -631,13 +628,29 @@ export default async function chatView(host, ctx = {}) {
     return log.querySelector(`[data-id="${cssEscape(m.id)}"]`);
   }
 
-  function replaceNode(m) {
-    const old = nodeFor(m);
-    if (!old) return;
+  /**
+   * 就地重渲染一条消息。
+   * prevId 必须传「改 id 之前」的值：乐观气泡转正时先把 id 换成服务端 id，
+   * 此时再按新 id 查询 DOM 会查不到，节点就会永远停在「发送中」。
+   */
+  function replaceNode(m, prevId = null) {
+    const old = nodeFor(prevId ? { id: prevId } : m);
+    if (!old) return false;
     const flags = groupFlags();
     const idx = state.messages.indexOf(m);
     const fresh = buildMessageNode(m, flags[idx] || {});
     old.replaceWith(fresh);
+    return true;
+  }
+
+  /** 乐观消息转正：先摘旧节点，再合并服务端字段 */
+  function settleMessage(optimistic, message) {
+    const prevId = optimistic.id;
+    Object.assign(optimistic, message, { pending: false, clientId: null, failed: null });
+    if (!replaceNode(optimistic, prevId)) {
+      // 节点被裁剪掉了：直接追加，避免消息凭空消失
+      appendNode(optimistic);
+    }
   }
 
   function appendNode(m, { animate = false } = {}) {
