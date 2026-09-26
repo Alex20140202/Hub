@@ -15,6 +15,38 @@ const TYPING_TTL = 4000;
 const TYPING_THROTTLE = 1500;
 
 /**
+ * REST -> WS 桥接。
+ * HTTP 发消息与后台清空房间也必须让在线客户端立刻看到，
+ * 否则「降级接口」写进去的消息在聊天窗口里凭空消失。
+ */
+let bridge = {
+  broadcast: () => false,
+  broadcastMessage: () => 0,
+  limit: () => ({ ok: true, retryAfterMs: 0 }),
+  ready: false,
+};
+
+/** 供 routes 层调用：向房间内所有在线连接推送（未启动 WebSocket 时安全降级） */
+export function pushToRoom(room, payload) {
+  return bridge.broadcast(payload, room);
+}
+
+/** 供 routes 层调用：广播一条已落库的消息，逐连接塑形 isMe */
+export function pushMessage(row, room, extra = {}) {
+  return bridge.broadcastMessage(row, room, extra);
+}
+
+/** 供 routes 层调用：复用与 WS 相同的限流器，避免 HTTP 通道绕过 */
+export function takeRateLimit(actor) {
+  return bridge.limit(actor);
+}
+
+/** 供 routes 层调用：房间清空后通知在线客户端清屏 */
+export function pushCleared(room) {
+  return bridge.broadcast({ type: 'cleared', room }, room);
+}
+
+/**
  * 跨连接共享的滑动窗口限流。
  * 之前限流状态挂在 conn 上，重连即清零，形同虚设；这里按 actor 存到服务端。
  */
@@ -572,7 +604,27 @@ export function setupChat(server) {
     },
   });
 
+  bridge = {
+    ready: true,
+    broadcast: (payload, room = 'lobby') => {
+      const text = JSON.stringify(payload);
+      let n = 0;
+      for (const c of roomOccupants(room)) {
+        if (c.writable) {
+          c.send(text);
+          n++;
+        } else {
+          c.close(1013, 'slow consumer');
+        }
+      }
+      return n;
+    },
+    broadcastMessage: (row, room = 'lobby', extra = {}) => broadcastMessage(row, room, extra),
+    limit: (actor) => limiter.take(actor),
+  };
+
   process.once('exit', () => {
+    bridge.ready = false;
     limiter.stop();
     clearInterval(pruneTyping);
     chat.clearPresence();

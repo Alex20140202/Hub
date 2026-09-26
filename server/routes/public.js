@@ -163,25 +163,44 @@ router.get('/chat/history', async (ctx) => {
   });
 });
 
-/** 直接发消息（HTTP 兜底，便于脚本/机器人接入） */
+/**
+ * 直接发消息（HTTP 兜底，便于脚本/机器人接入）。
+ * 必须与 WebSocket 通道对齐：同样的昵称净化、禁言、限流，
+ * 并且落库后要广播给房间内在线客户端，否则消息在前端凭空消失。
+ */
 router.post('/chat/messages', async (ctx) => {
   const room = v.str(ctx.body.room, '房间', { required: false, max: 20 }) || chat.SYSTEM_ROOM;
   if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
   const body = v.str(ctx.body.body, '消息', { min: 1, max: 2000, trim: false });
-  const nickname = ctx.user?.nickname || ctx.user?.username || v.str(ctx.body.nickname, '昵称', { min: 1, max: 20 });
+  const guestId = v.str(ctx.body.guestId, '访客标识', { required: false, max: 40 }) || '';
+  const rawNick =
+    ctx.user?.nickname || ctx.user?.username || v.str(ctx.body.nickname, '昵称', { min: 1, max: 20 });
+  const nickname = ctx.user ? rawNick : chat.sanitizeNickname(rawNick, '游客');
+  const actor = chat.actorKey({ userId: ctx.user?.id || null, nickname, guestId });
+
+  // 与 WS 共用同一个限流器，防止绕过浏览器端 8 次/5 秒
+  const gate = chatGateway.takeRateLimit(actor);
+  if (!gate.ok) {
+    const secs = Math.ceil(gate.retryAfterMs / 1000);
+    ctx.res.setHeader?.('Retry-After', String(secs));
+    throw HttpError.tooMany(`发言过于频繁，请 ${secs} 秒后再试`);
+  }
+  chat.assertNotMuted(actor);
+
   const row = messages.add({
     room,
     nickname,
     body,
     userId: ctx.user?.id || null,
     replyTo: v.str(ctx.body.replyTo, '引用', { required: false, max: 40 }) || null,
-    actor: chat.actorKey({ userId: ctx.user?.id || null, nickname }),
+    actor,
   });
   if (ctx.user) {
     points.earn(ctx.user.id, 'chat_message');
     chat.markRead(ctx.user.id, room, row.created_at);
   }
-  ctx.created({ message: messages.shapeMessage(row, { id: ctx.user?.id || null, role: ctx.user?.role || null, actor: chat.actorKey({ userId: ctx.user?.id || null, nickname }) }) });
+  chatGateway.pushMessage(row, room);
+  ctx.created({ message: messages.shapeMessage(row, { id: ctx.user?.id || null, role: ctx.user?.role || null, actor }) });
 });
 
 /** 未读数 */
@@ -364,8 +383,11 @@ router.post('/admin/settings', async (ctx) => {
 
 router.post('/admin/chat/clear', async (ctx) => {
   requireAdmin(ctx);
-  messages.clearRoom('lobby');
-  ctx.ok({ ok: true });
+  const room = v.str(ctx.body.room, '房间', { required: false, max: 20 }) || chat.SYSTEM_ROOM;
+  if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
+  messages.clearRoom(room);
+  chatGateway.pushCleared(room);
+  ctx.ok({ ok: true, room });
 });
 
 router.post('/admin/posts/:id/feature', async (ctx) => {

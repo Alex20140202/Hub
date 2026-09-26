@@ -191,8 +191,18 @@ export const PublicAPI = {
   search: (q) => api.get('/search', { q }),
   user: (username) => api.get(`/users/${encodeURIComponent(username)}`),
   users: (params) => api.get('/users', params),
-  chatHistory: (room = 'lobby') => api.get('/chat/history', { room }),
   health: () => api.get('/health'),
+};
+
+/** 聊天：WebSocket 之外的分页历史、未读与房间管理（仅用于降级与角标轮询） */
+export const ChatAPI = {
+  rooms: () => api.get('/chat/rooms'),
+  room: (slug) => api.get(`/chat/rooms/${encodeURIComponent(slug)}`),
+  createRoom: (data) => api.post('/chat/rooms', data),
+  history: (room = 'lobby', before = null, limit = 50) => api.get('/chat/history', { room, before, limit }),
+  post: (data) => api.post('/chat/messages', data),
+  unread: () => api.get('/chat/unread'),
+  markRead: (room, at) => api.post('/chat/read', { room, at }),
 };
 
 export const AdminAPI = {
@@ -203,7 +213,14 @@ export const AdminAPI = {
   setRole: (id, role) => api.post(`/admin/users/${id}/role`, { role }),
   removeUser: (id) => api.del(`/admin/users/${id}`),
   saveSettings: (data) => api.post('/admin/settings', data),
-  clearChat: () => api.post('/admin/chat/clear'),
+  chat: () => api.get('/admin/chat'),
+  chatMessages: (params) => api.get('/admin/chat/messages', params),
+  createChatRoom: (data) => api.post('/admin/chat/rooms', data),
+  updateChatRoom: (slug, data) => api.patch(`/admin/chat/rooms/${encodeURIComponent(slug)}`, data),
+  deleteChatRoom: (slug) => api.del(`/admin/chat/rooms/${encodeURIComponent(slug)}`),
+  muteChat: (target, minutes, reason) => api.post('/admin/chat/mute', { target, minutes, reason }),
+  unmuteChat: (target) => api.del('/admin/chat/mute', { params: { target } }),
+  clearChat: (room = 'lobby') => api.post('/admin/chat/clear', { room }),
   feature: (id) => api.post(`/admin/posts/${id}/feature`),
   points: () => api.get('/admin/points'),
   createShopItem: (data) => api.post('/admin/shop/items', data),
