@@ -1,20 +1,22 @@
 import { el } from '../lib/dom.js';
-import { store } from '../lib/store.js';
-import { StatsAPI, PostAPI, NoteAPI, TodoAPI, LinkAPI, FileAPI } from '../lib/api.js';
+import { store, emit } from '../lib/store.js';
+import { StatsAPI, PostAPI, NoteAPI, TodoAPI, LinkAPI, FileAPI, PointsAPI } from '../lib/api.js';
 import { numberFmt, dateShort, timeAgo, humanSize } from '../lib/format.js';
 import { statCard, empty, skeleton, progress, ring, badge, avatar } from '../ui/components.js';
 import { lineChart, barChart, donutChart, heatmap, chartLegend } from '../ui/chart.js';
 import { go } from '../lib/router.js';
+import { toast } from '../ui/toast.js';
 
 export default async function dashboardView(host) {
   host.replaceChildren(skeleton(4, { title: true }));
 
-  const [data, todos, notes, links, files] = await Promise.all([
+  const [data, todos, notes, links, files, points] = await Promise.all([
     StatsAPI.dashboard(),
     TodoAPI.list().catch(() => ({ items: [], stats: {} })),
     NoteAPI.list().catch(() => ({ items: [] })),
     LinkAPI.list().catch(() => ({ items: [] })),
     FileAPI.list({ size: 100 }).catch(() => ({ items: [], usage: { byFolder: [], total: 0 } })),
+    PointsAPI.overview().catch(() => null),
   ]);
 
   const { mine, global, trend, topPosts, recentComments } = data;
@@ -28,6 +30,7 @@ export default async function dashboardView(host) {
           el('p', {}, `今天是 ${dateShort(Date.now())} · 加入于 ${dateShort(user.created_at)}`),
         ]),
         el('div.row', {}, [
+          el('a.btn.btn-ghost', { href: '#/points' }, `🪙 ${(points?.points ?? user.points ?? 0).toLocaleString('zh-CN')} 积分`),
           el('a.btn.btn-ghost', { href: '#/blog?mine=1' }, '我的文章'),
           el('a.btn.btn-primary', { href: '#/blog/new' }, '✍️ 写文章'),
         ]),
@@ -93,6 +96,36 @@ export default async function dashboardView(host) {
 
       /* 侧边栏 */
       el('div.col', { style: { gap: '16px' } }, [
+        el('div.card', {}, [
+          el('div.card-title', {}, '🪙 每日签到'),
+          el('div.row-between', { style: { marginBottom: '10px' } }, [
+            el('span.points-chip', { class: points?.checkin.doneToday ? 'done' : '' },
+              points?.checkin.doneToday ? '今日已签到' : '今日未签到'),
+            el('span.small.muted', {}, `连续 ${points?.streak ?? 0} 天`),
+          ]),
+          el('div.checkin-week', {}, (points?.week || []).map((d) =>
+            el('div.day', { class: d.checked ? 'on' : '' }, [el('span.d', {}, d.label), el('i.dot')]))),
+          el('button.btn.btn-primary.btn-block', {
+            type: 'button',
+            style: { marginTop: '12px' },
+            disabled: !!points?.checkin.doneToday,
+            onclick: async (e) => {
+              e.target.disabled = true;
+              try {
+                const r = await PointsAPI.checkin();
+                toast.success(r.message);
+                store.user.points = r.balance;
+                emit('user', store.user);
+                dashboardView(host);
+              } catch (err) {
+                toast.error(err.message);
+                e.target.disabled = false;
+              }
+            },
+          }, points?.checkin.doneToday ? '✓ 今日已签到' : '签到领积分'),
+          el('a.btn.btn-ghost.btn-sm.btn-block', { href: '#/points', style: { marginTop: '8px' } }, '去积分商城'),
+        ]),
+
         el('div.card', {}, [
           el('div.card-title', {}, '🎯 待办进度'),
           el('div.row', { style: { gap: '16px' } }, [

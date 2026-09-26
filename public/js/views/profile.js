@@ -1,8 +1,8 @@
 import { el, clear } from '../lib/dom.js';
 import { store } from '../lib/store.js';
-import { AuthAPI, StatsAPI, PostAPI } from '../lib/api.js';
+import { AuthAPI, StatsAPI, PostAPI, PointsAPI, ShopAPI } from '../lib/api.js';
 import { numberFmt, dateShort, timeAgo, humanSize } from '../lib/format.js';
-import { avatar, badge, empty, skeleton, statCard, ring, progress } from '../ui/components.js';
+import { avatar, avatarFramed, badge, empty, skeleton, statCard, ring, progress } from '../ui/components.js';
 import { barChart, lineChart, donutChart, chartLegend, heatmap } from '../ui/chart.js';
 import { toast } from '../ui/toast.js';
 import { go } from '../lib/router.js';
@@ -11,11 +11,14 @@ import { confirmDialog } from '../ui/modal.js';
 export default async function profileView(host) {
   host.replaceChildren(skeleton(3));
   const user = store.user;
-  const [dashboard, leaderboard, settings] = await Promise.all([
+  const [dashboard, leaderboard, settings, points, owned] = await Promise.all([
     StatsAPI.dashboard(),
     StatsAPI.leaderboard().catch(() => ({ items: [] })),
     AuthAPI.sessions().catch(() => ({ items: [] })),
+    PointsAPI.overview().catch(() => null),
+    ShopAPI.mine().catch(() => ({ items: [] })),
   ]);
+  const items = owned.items || [];
 
   const { mine, global } = dashboard;
 
@@ -24,7 +27,7 @@ export default async function profileView(host) {
     el('section.hero', { style: { padding: '40px 0 28px' } }, [
       el('div.container', {}, [
         el('div.row.wrap', { style: { gap: '20px' } }, [
-          avatar(user, 'xl'),
+          avatarFramed(user, 'xl'),
           el('div.grow', { style: { minWidth: '220px' } }, [
             el('h1', { style: { fontSize: 'var(--step-2)' } }, user.nickname || user.username),
             el('p.soft', {}, user.bio || '还没有填写个人简介'),
@@ -33,6 +36,8 @@ export default async function profileView(host) {
               el('span', {}, `加入于 ${dateShort(user.created_at)}`),
               user.last_login ? el('span', {}, `最近登录 ${timeAgo(user.last_login)}`) : null,
               badge(user.role === 'admin' ? '管理员' : user.role === 'moderator' ? '版主' : '成员', user.role === 'admin' ? 'brand' : ''),
+              el('span.badge.badge-indigo', {}, `🪙 ${numberFmt(points?.points ?? user.points ?? 0)} 积分`),
+              items.filter((i) => i.kind === 'badge').map((b) => el('span.badge.badge-purple', { title: b.description }, `${b.icon} ${b.payload?.name || b.name}`)),
             ]),
           ]),
           el('div.row', {}, [
@@ -92,6 +97,37 @@ export default async function profileView(host) {
 
         /* 侧栏 */
         el('div.col', { style: { gap: '16px' } }, [
+          el('div.card', {}, [
+            el('div.row-between', {}, [
+              el('div.card-title', { style: { margin: '0' } }, '🪙 我的积分'),
+              el('a.small', { href: '#/points' }, '积分中心 →'),
+            ]),
+            el('div.points-balance', { style: { marginTop: '12px', alignItems: 'flex-start' } }, [
+              el('span.label', {}, '可用余额'),
+              el('strong', {}, numberFmt(points?.points ?? 0)),
+            ]),
+            el('div.row', { style: { marginTop: '12px', gap: '8px' } }, [
+              el('a.btn.btn-ghost.btn-sm.grow', { href: '#/points' }, '签到'),
+              el('a.btn.btn-ghost.btn-sm.grow', { href: '#/points?tab=shop' }, '逛商城'),
+            ]),
+            el('div.small.muted', { style: { marginTop: '10px' } },
+              `累计获得 ${numberFmt(points?.earned || 0)} · 累计消费 ${numberFmt(points?.spent || 0)}`),
+          ]),
+
+          el('div.card', {}, [
+            el('div.card-title', {}, '🎖️ 勋章墙'),
+            items.filter((i) => i.kind === 'badge' || i.kind === 'frame').length
+              ? el('div.shop-grid', { style: { gridTemplateColumns: '1fr', marginBottom: '0' } },
+                  items.filter((i) => i.kind === 'badge' || i.kind === 'frame').map((i) => el('div.shop-item', {}, [
+                    el('div.shop-icon', { class: i.kind === 'frame' ? 'amber' : 'purple' }, i.icon),
+                    el('div.shop-body', {}, [
+                      el('strong', {}, i.payload?.name || i.name),
+                      el('p.small.muted', {}, i.description),
+                    ]),
+                  ])))
+              : el('p.small.muted', {}, '还没有勋章，去积分商城兑换'),
+          ]),
+
           el('div.card', {}, [
             el('div.card-title', {}, '📦 数据导出'),
             el('p.small.muted', { style: { marginBottom: '10px' } }, '导出你的笔记、待办、书签与短链数据为 JSON'),

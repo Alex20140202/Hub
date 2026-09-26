@@ -2,7 +2,7 @@ import { hydrate, store, on, toggleTheme } from './lib/store.js';
 import { route, fallback, start, go } from './lib/router.js';
 import { el, clear, $ } from './lib/dom.js';
 import { toast } from './ui/toast.js';
-import { avatar } from './ui/components.js';
+import { avatar, avatarFramed } from './ui/components.js';
 import { openCommand } from './ui/command.js';
 import { openAuthMenu } from './ui/user-menu.js';
 
@@ -24,6 +24,7 @@ import userProfile from './views/user.js';
 import search from './views/search.js';
 import admin from './views/admin.js';
 import settings from './views/settings.js';
+import points from './views/points.js';
 import notFound from './views/not-found.js';
 
 const outlet = () => document.getElementById('main');
@@ -74,6 +75,7 @@ const NAV = [
   { path: '/todos', label: '待办', view: todos },
   { path: '/links', label: '书签', view: links },
   { path: '/files', label: '文件', view: files },
+  { path: '/points', label: '积分', view: points },
   { path: '/chat', label: '聊天室', view: chat, public: true },
   { path: '/short', label: '短链', view: short, public: true },
 ];
@@ -89,6 +91,7 @@ route('/blog/new', view(editor, { auth: true, title: '写文章' }), { auth: tru
 route('/blog/:slug/edit', view(editor, { auth: true, title: '编辑文章' }), { auth: true });
 route('/blog/:slug', view(post, { title: (c) => c.params.slug }), { public: true });
 route('/profile', view(profile, { auth: true, title: '个人中心' }), { auth: true });
+route('/points', view(points, { auth: true, title: '积分中心' }), { auth: true });
 route('/u/:username', view(userProfile, { title: '用户主页' }), { public: true });
 route('/search', view(search, { title: '搜索' }), { public: true });
 route('/admin', view(admin, { auth: true, admin: true, title: '管理后台' }), { auth: true });
@@ -118,7 +121,7 @@ function renderAuthSlot() {
   clear(slot);
   if (store.user) {
     const trigger = el('button.user-trigger', { type: 'button', 'aria-haspopup': 'menu' }, [
-      avatar(store.user, 'sm'),
+      avatarFramed(store.user, 'sm'),
       el('span.small.nowrap.hide-sm', {}, store.user.nickname || store.user.username),
       el('span.muted.small', {}, '▾'),
     ]);

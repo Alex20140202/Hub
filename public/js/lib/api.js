@@ -173,6 +173,20 @@ export const StatsAPI = {
   leaderboard: () => api.get('/stats/leaderboard'),
 };
 
+export const PointsAPI = {
+  overview: () => api.get('/points/overview'),
+  checkin: () => api.post('/points/checkin'),
+  logs: (params) => api.get('/points/logs', params),
+  leaderboard: (limit = 20) => api.get('/points/leaderboard', { limit }),
+};
+
+export const ShopAPI = {
+  items: () => api.get('/shop/items'),
+  mine: () => api.get('/shop/mine'),
+  redeem: (id) => api.post(`/shop/redeem/${id}`),
+  use: (id) => api.post(`/shop/use/${id}`),
+};
+
 export const PublicAPI = {
   search: (q) => api.get('/search', { q }),
   user: (username) => api.get(`/users/${encodeURIComponent(username)}`),
@@ -191,6 +205,9 @@ export const AdminAPI = {
   saveSettings: (data) => api.post('/admin/settings', data),
   clearChat: () => api.post('/admin/chat/clear'),
   feature: (id) => api.post(`/admin/posts/${id}/feature`),
+  points: () => api.get('/admin/points'),
+  createShopItem: (data) => api.post('/admin/shop/items', data),
+  updateShopItem: (id, data) => api.patch(`/admin/shop/items/${id}`, data),
   database: () => api.get('/admin/database'),
   vacuum: () => api.post('/admin/maintenance/vacuum'),
 };

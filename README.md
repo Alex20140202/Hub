@@ -73,14 +73,15 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 | 短链 | `#/short` | 自定义短码、点击统计、停用、管理后台统一管理 |
 | 聊天室 | `#/chat` | WebSocket 实时消息、在线人数、`/help` 指令、消息持久化 |
 | 仪表盘 | `#/dashboard` | 个人数据、趋势折线图、热力图、待办 / 收藏 / 文件快捷入口 |
-| 个人中心 | `#/profile` | 资料编辑、文章、评论、收藏 |
+| 积分中心 | `#/points` | 每日签到、积分流水、排行榜、积分商城与我的道具 |
+| 个人中心 | `#/profile` | 资料编辑、文章、评论、收藏、积分概览、勋章墙 |
 | 用户主页 | `#/u/:username` | 他人资料、公开文章与统计 |
 | 搜索 | `#/search` | 跨文章 / 笔记 / 书签 / 待办 / 用户 / 标签聚合搜索 |
-| 设置 | `#/settings` | 资料、密码、外观主题、主题色、会话管理、数据导出 |
-| 管理后台 | `#/admin` | 总览图表、内容管理、评论审核、用户、短链、订阅、站点设置、数据库维护 |
+| 设置 | `#/settings` | 资料、密码、明暗模式、商城皮肤与头像框、会话管理、数据导出 |
+| 管理后台 | `#/admin` | 总览图表、内容管理、评论审核、用户、短链、积分商城、订阅、站点设置、数据库维护 |
 | 命令面板 | `⌘K` / `Ctrl+K` | 全站命令与文章 / 用户搜索 |
 
-其它细节：亮色 / 暗色 / 跟随系统主题、响应式布局、键盘可达性（跳转链接、`Esc` 关闭弹层）、Toast 提示、骨架屏、乐观更新。
+其它细节：亮色 / 暗色 / 跟随系统主题、4 套商城皮肤、稀有头像框、响应式布局、键盘可达性（跳转链接、`Esc` 关闭弹层）、Toast 提示、骨架屏、乐观更新。
 
 ---
 
@@ -95,13 +96,13 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 │   ├── http/               # 路由器、请求体与 multipart 解析、静态文件、响应封装
 │   ├── lib/                # JWT、密码、校验、限流、日志、id / slug、会话
 │   ├── models/             # 数据访问层（users/posts/comments/notes/...）
-│   ├── routes/             # auth / posts / workspace / misc / public 五组接口
+│   ├── routes/             # auth / posts / workspace / misc / public / points 六组接口
 │   ├── services/           # 短链跳转解析
 │   ├── ws/                 # WebSocket 帧编解码与聊天室逻辑
 │   └── scripts/            # reset.js、smoke.js
 ├── public/                 # 前端（无构建，直接由浏览器加载 ES Module）
 │   ├── index.html
-│   ├── css/                # tokens / base / layout / components
+│   ├── css/                # tokens / base / layout / components / points
 │   └── js/
 │       ├── main.js         # 启动、路由表、外壳、鉴权守卫
 │       ├── lib/            # api、router、store、dom、format、markdown
@@ -188,11 +189,69 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 | GET | `/chat/history`、`POST /chat/messages` | 聊天室历史 / 发送（REST 兜底） |
 | GET | `/stats/overview`、`/stats/dashboard`、`/stats/trend`、`/stats/heatmap`、`/stats/leaderboard` | 统计与图表数据 |
 
+### 积分与商城
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/points/overview` | 余额、签到状态、本周日历、收支汇总、最近流水、排行榜、赚分规则 |
+| `POST` | `/points/checkin` | 每日签到，返回连签天数与本次收益 |
+| `GET` | `/points/logs?limit=&page=` | 积分流水分页 |
+| `GET` | `/points/leaderboard?limit=` | 积分排行榜 |
+| `GET` | `/shop/items` | 在售道具（登录时附带 `owned` 与余额） |
+| `GET` | `/shop/mine` | 我的道具（含持有记录 id） |
+| `POST` | `/shop/redeem/:itemId` | 兑换道具，扣积分并发货 |
+| `POST` | `/shop/use/:ownedId` | 使用一次性道具（改名券） |
+
+<details>
+<summary>管理端积分接口</summary>
+
+`GET /admin/points`（经济指标 + 商城统计 + 全部道具）、`POST /admin/shop/items`、`PATCH /admin/shop/items/:id`
+
+</details>
+
 ### 管理后台（仅管理员）
 
 `GET /admin/overview`、`GET /admin/comments?status=`、`PATCH /admin/comments/:id`、`GET /admin/events`、`POST /admin/users/:id/role`、`DELETE /admin/users/:id`、`POST /admin/posts/:id/feature`、`POST /admin/settings`、`POST /admin/chat/clear`、`GET /admin/database`、`POST /admin/maintenance/vacuum`
 
 </details>
+
+---
+
+## 积分体系与商城
+
+积分是站内的通用权益货币：可以通过真实行为赚取，再兑换**立即生效**的道具，而不是只能看不能用的虚拟数字。
+
+### 赚取规则
+
+| 行为 | 积分 | 说明 |
+| --- | --- | --- |
+| 注册 | +20 | 仅一次 |
+| 新手礼包 | +150 | 种子账号内置，方便直接体验商城 |
+| 每日签到 | +5 | 每天一次 |
+| 连续签到 3 天起 | 额外 +5 | 连续中断则归零 |
+| 连续签到满 7 天 | 额外 +10 | 全勤奖励 |
+| 发布文章 | +20 | — |
+| 发表评论 | +3 | 每天前 10 条 |
+| 上传文件 | +5 | — |
+| 新建笔记 / 完成待办 | +2 | 每天各前 20 条 |
+| 创建短链 | +1 | 每天前 20 条 |
+| 文章被点赞 | +1 | 作者获得，每天最多 50 次 |
+| 评论被点赞 | +2 | 作者获得，每天最多 30 次 |
+| 完善个人资料 | +15 | 仅一次 |
+
+所有加分都会写入 `point_logs` 流水表（含变动值、变动后余额与原因），并受每日次数上限约束，避免刷量。
+
+### 商城道具
+
+| 类型 | 道具 | 兑换后效果 |
+| --- | --- | --- |
+| 主题皮肤 | 海洋 / 森林 / 落日 / 黑白极简 | 立即切换整站配色（`data-skin`），与明暗模式自由组合 |
+| 头像框 | 鎏金 / 霓虹 | 顶栏、个人中心、用户主页头像显示对应边框 |
+| 勋章 | 开拓者 / 收藏家 | 展示在个人中心勋章墙与主页徽标 |
+| 存储扩容 | +50MB / +200MB | 永久提高单文件上传上限（`files.uploadLimitFor`） |
+| 改名券 | 用户名改名券 | 在「我的道具」中手动使用，可修改一次用户名 |
+
+限量道具带库存与已兑计数，售罄后无法兑换；下架道具不再可兑换。
 
 ---
 
@@ -222,7 +281,9 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 
 ## 数据表
 
-`users`、`posts`、`categories`、`tags`、`post_tags`、`comments`、`reactions`、`bookmarks`、`notes`、`todos`、`links`、`short_links`、`files`、`messages`、`sessions`、`subscribers`、`events`、`settings`、`_migrations`
+`users`、`posts`、`categories`、`tags`、`post_tags`、`comments`、`reactions`、`bookmarks`、`notes`、`todos`、`links`、`short_links`、`files`、`messages`、`sessions`、`subscribers`、`events`、`settings`、`point_logs`、`checkins`、`shop_items`、`user_items`、`_migrations`
+
+积分相关的迁移为 `002_points`（`users` 积分字段 + `point_logs` / `shop_items` / `user_items`）、`003_checkins`（签到日历）、`004_skin`（商城皮肤）。
 
 迁移在 `server/db.js` 中按 `NNN_名称` 顺序执行，已应用的记录写入 `_migrations`，重复启动不会重复建表。
 
@@ -245,4 +306,4 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=3535 npm start
 npm run smoke
 ```
 
-脚本会在随机端口启动一个使用**临时数据库与临时上传目录**的实例，覆盖静态资源、注册登录、会话、文章增删改查、点赞收藏、评论与审核、笔记 / 待办 / 书签、文件上传删除、短链跳转与统计、订阅、导出、搜索、统计接口、WebSocket 双客户端收发与管理后台，全部通过后自动清理临时数据并删除实例。
+脚本会在随机端口启动一个使用**临时数据库与临时上传目录**的实例，覆盖静态资源、注册登录、会话、文章增删改查、点赞收藏、评论与审核、笔记 / 待办 / 书签、文件上传删除、短链跳转与统计、订阅、导出、搜索、统计接口、**积分赚取与每日上限、签到、商城兑换与权益生效、改名券使用、管理端商城管理**、WebSocket 双客户端收发与管理后台，全部通过后自动清理临时数据并删除实例。

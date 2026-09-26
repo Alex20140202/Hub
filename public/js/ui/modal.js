@@ -100,11 +100,9 @@ export function confirmDialog({ title = '确认操作', message, confirmText = '
       footer: [cancelBtn, confirmBtn],
       onClose: (r) => resolve(r === true),
     });
-    cancelBtn.addEventListener('click', () => dlg.close());
-    confirmBtn.addEventListener('click', () => {
-      dlg.close();
-      resolve(true);
-    });
+    cancelBtn.addEventListener('click', () => dlg.close(false));
+    // 必须以 true 关闭：close() 会同步触发 onClose，从而决定 Promise 的结果
+    confirmBtn.addEventListener('click', () => dlg.close(true));
   });
 }
 

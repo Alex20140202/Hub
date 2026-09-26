@@ -5,7 +5,8 @@ import HttpError from '../lib/http-error.js';
 
 const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
 
-const PUBLIC_FIELDS = `id, username, email, role, nickname, bio, avatar_color, website, location, theme, post_count, created_at, last_login`;
+const PUBLIC_FIELDS = `id, username, email, role, nickname, bio, avatar_color, website, location, theme,
+  frame, skin, points, streak, storage_bonus, post_count, created_at, last_login`;
 
 function decorate(row) {
   if (!row) return null;
@@ -13,6 +14,7 @@ function decorate(row) {
     ...row,
     avatar: row.avatar_color || '#6366f1',
     joinedAt: row.created_at,
+    storageBonus: row.storage_bonus || 0,
   };
 }
 
@@ -21,7 +23,7 @@ export function findByLogin(login) {
 }
 
 export function findById(id) {
-  return get(`SELECT ${PUBLIC_FIELDS} FROM users WHERE id = ?`, [id]);
+  return decorate(get(`SELECT ${PUBLIC_FIELDS} FROM users WHERE id = ?`, [id]));
 }
 
 export function findFull(id) {
@@ -85,6 +87,7 @@ export function updateProfile(id, patch) {
     website: 'website',
     location: 'location',
     theme: 'theme',
+    skin: 'skin',
     avatarColor: 'avatar_color',
   };
   for (const [key, column] of Object.entries(mapping)) {

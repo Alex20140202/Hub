@@ -125,3 +125,28 @@ hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-6) 0; }
     scroll-behavior: auto !important;
   }
 }
+
+/* ============ 排版与阅读体验 ============ */
+h1, h2, h3, h4, h5 { text-wrap: balance; }
+p, li { text-wrap: pretty; }
+
+/* 标题渐变强调：仅用于首页主标题与关键数字 */
+.text-gradient {
+  background: linear-gradient(115deg, var(--text) 20%, var(--brand) 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* 数字统一等宽，避免跳动 */
+.v, .hero-stat .v, .stat .v, .points-balance strong, .rank-points {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 正文长文提升行距与最大宽度 */
+.prose { max-width: 72ch; }
+.prose p { line-height: 1.85; }
+
+/* 链接下划线更克制 */
+.app-main a:not(.btn):not(.card):not(.chip):not(.nav a) {
+  text-decoration-color: color-mix(in srgb, currentColor 32%, transparent);
+  text-underline-offset: 3px;
+}

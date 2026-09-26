@@ -14,6 +14,7 @@ export const store = {
     allow_registration: true,
   },
   theme: localStorage.getItem('hub.theme') || 'system',
+  skin: localStorage.getItem('hub.skin') || '',
   online: true,
   hydrated: false,
 };
@@ -41,15 +42,40 @@ export function emit(event, payload) {
   }
 }
 
-/* ---------- 主题 ---------- */
-export function applyTheme(theme) {
-  store.theme = theme;
-  localStorage.setItem('hub.theme', theme);
-  const dark = theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+/* ---------- 主题 / 商城皮肤 ---------- */
+export const BASE_THEMES = ['light', 'dark', 'system'];
+/** 商城皮肤：ocean / forest / sunset / mono，映射到品牌色板 */
+export const SKINS = {
+  ocean: { name: '海洋', h: 205, accent: '#38bdf8' },
+  forest: { name: '森林', h: 152, accent: '#4ade80' },
+  sunset: { name: '落日', h: 22, accent: '#fb923c' },
+  mono: { name: '极简', h: 250, accent: '#94a3b8' },
+};
+
+export function applyTheme(theme, skin = store.skin) {
+  store.theme = BASE_THEMES.includes(theme) ? theme : 'system';
+  store.skin = SKINS[skin] ? skin : '';
+  localStorage.setItem('hub.theme', store.theme);
+  if (store.skin) localStorage.setItem('hub.skin', store.skin);
+  else localStorage.removeItem('hub.skin');
+
+  const dark = store.theme === 'dark' || (store.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  const root = document.documentElement;
+  root.dataset.theme = dark ? 'dark' : 'light';
+  if (store.skin) root.dataset.skin = store.skin;
+  else delete root.dataset.skin;
+  root.style.setProperty('--brand-h', store.skin ? String(SKINS[store.skin].h) : '243');
+  root.style.setProperty('--accent', store.skin ? SKINS[store.skin].accent : '#22d3ee');
+
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.content = dark ? '#080b14' : '#6366f1';
   emit('theme', store.theme);
+  emit('skin', store.skin);
+}
+
+/** 只切换商城皮肤 */
+export function applySkin(skin) {
+  applyTheme(store.theme, skin);
 }
 
 export function toggleTheme() {
@@ -58,7 +84,7 @@ export function toggleTheme() {
 }
 
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (store.theme === 'system') applyTheme('system');
+  if (store.theme === 'system') applyTheme('system', store.skin);
 });
 
 /* ---------- 会话 ---------- */
@@ -76,7 +102,7 @@ export async function hydrate() {
     /* 设置读取失败不影响主流程 */
   }
   store.hydrated = true;
-  if (store.user?.theme) applyTheme(store.user.theme);
+  if (store.user?.theme) applyTheme(store.user.theme, store.user.skin || '');
   emit('user', store.user);
   emit('settings', store.settings);
   return store.user;

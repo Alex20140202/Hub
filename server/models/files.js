@@ -95,6 +95,14 @@ export function list(userId, { folder = null, q = '', page = 1, size = 24, isAdm
   return { items: rows.map(shape), total, page, size, pages: Math.max(1, Math.ceil(total / size)) };
 }
 
+/** 单文件上限 = 基础限制 + 商城扩容（每 MB） */
+export function uploadLimitFor(userId) {
+  const bonusMb = userId
+    ? get('SELECT storage_bonus FROM users WHERE id = ?', [userId])?.storage_bonus || 0
+    : 0;
+  return config.limits.uploadBytes + bonusMb * 1024 * 1024;
+}
+
 export function usage() {
   const rows = all('SELECT folder, COUNT(*) AS c, SUM(size) AS bytes FROM files GROUP BY folder');
   const total = rows.reduce((sum, r) => sum + (r.bytes || 0), 0);
@@ -103,9 +111,8 @@ export function usage() {
 
 export async function store({ file, userId = null, folder = null, description = '', isPublic = true }) {
   if (!file || !file.data?.length) throw HttpError.badRequest('没有收到文件');
-  if (file.size > config.limits.uploadBytes) {
-    throw HttpError.tooLarge(`文件超过 ${humanSize(config.limits.uploadBytes)} 限制`);
-  }
+  const limit = uploadLimitFor(userId);
+  if (file.size > limit) throw HttpError.tooLarge(`文件超过 ${humanSize(limit)} 限制`);
   const mime = guessMime(file.filename, file.contentType);
   const stored = `${Date.now().toString(36)}-${randomId(6)}-${safeName(file.filename)}`;
   const target = path.join(config.paths.uploads, stored);

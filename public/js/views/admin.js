@@ -12,6 +12,7 @@ const TABS = [
   { key: 'comments', label: '💬 评论审核' },
   { key: 'users', label: '👥 用户' },
   { key: 'links', label: '🔗 短链' },
+  { key: 'shop', label: '🪙 积分商城' },
   { key: 'subscribers', label: '✉️ 订阅' },
   { key: 'settings', label: '⚙️ 站点设置' },
   { key: 'maintenance', label: '🛠 维护' },
@@ -49,6 +50,7 @@ export default async function adminView(host) {
       else if (current === 'comments') await renderComments();
       else if (current === 'users') await renderUsers();
       else if (current === 'links') await renderLinks();
+      else if (current === 'shop') await renderShop();
       else if (current === 'subscribers') await renderSubscribers();
       else if (current === 'settings') await renderSettings();
       else await renderMaintenance();
@@ -527,6 +529,126 @@ export default async function adminView(host) {
   }
 
   /* ---------------- 维护 ---------------- */
+  /* ---------- 积分商城 ---------- */
+  async function renderShop() {
+    const { economy, shop, items } = await AdminAPI.points();
+    clear(panel);
+
+    panel.append(
+      el('div.stat-grid', { style: { marginBottom: '20px' } }, [
+        statCard({ label: '流通积分', value: economy.totalPoints, icon: '🪙', hint: `${economy.holders} 人持有` }),
+        statCard({ label: '今日产出', value: economy.todayEarned, icon: '📈', hint: `${economy.todayCheckins} 人签到` }),
+        statCard({ label: '累计消费', value: economy.spent, icon: '🛒', hint: `${economy.redeems} 次兑换` }),
+        statCard({ label: '在售道具', value: shop.active, icon: '🎁', hint: `共 ${shop.items} 件` }),
+      ]),
+
+      el('div.card', {}, [
+        el('div.row-between.wrap', {}, [
+          el('div.card-title', { style: { margin: '0' } }, '🎁 道具管理'),
+          el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => openItemDialog() }, '+ 新增道具'),
+        ]),
+        el('div.table-wrap', { style: { marginTop: '14px' } }, [
+          el('table.table', {}, [
+            el('thead', {}, el('tr', {}, ['道具', '类型', '价格', '库存', '已兑', '状态', '操作'].map((h) => el('th', {}, h)))),
+            el('tbody', {}, items.map((item) => el('tr', {}, [
+              el('td', {}, [el('span', { style: { marginRight: '6px' } }, item.icon), item.name]),
+              el('td', {}, el('span.badge', { class: `badge-${toneOf(item.kind)}` }, item.kindLabel)),
+              el('td', {}, numberFmt(item.price)),
+              el('td', {}, item.stock < 0 ? '∞' : numberFmt(item.stock)),
+              el('td', {}, numberFmt(item.sold)),
+              el('td', {}, item.active
+                ? el('span.badge.badge-success', {}, '在售')
+                : el('span.badge.badge-muted', {}, '已下架')),
+              el('td', {}, el('div.row', { style: { gap: '6px' } }, [
+                el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => openItemDialog(item) }, '编辑'),
+                el('button.btn.btn-ghost.btn-sm', {
+                  type: 'button',
+                  onclick: async () => {
+                    try {
+                      await AdminAPI.updateShopItem(item.id, { active: !item.active });
+                      toast.success(item.active ? '已下架' : '已上架');
+                      render();
+                    } catch (err) {
+                      toast.error(err.message);
+                    }
+                  },
+                }, item.active ? '下架' : '上架'),
+              ])),
+            ]))),
+          ]),
+        ]),
+      ]),
+    );
+
+    function toneOf(kind) {
+      return { theme: 'indigo', frame: 'amber', badge: 'purple', storage: 'green', rename: 'blue' }[kind] || 'muted';
+    }
+
+    function openItemDialog(item = null) {
+      const dlg = modal({
+        title: item ? `编辑「${item.name}」` : '新增道具',
+        body: el('div.col', { style: { gap: '12px' } }, [
+          el('div.field', {}, [el('label', {}, '名称'), el('input.input', { value: item?.name || '', id: 'it-name' })]),
+          el('div.field', {}, [el('label', {}, '描述'), el('input.input', { value: item?.description || '', id: 'it-desc' })]),
+          el('div.grid.grid-2', { style: { gap: '12px' } }, [
+            el('div.field', {}, [el('label', {}, '图标'), el('input.input', { value: item?.icon || '🎁', id: 'it-icon', maxlength: '4' })]),
+            el('div.field', {}, [el('label', {}, '价格'), el('input.input', { type: 'number', min: '1', value: item?.price ?? 100, id: 'it-price' })]),
+          ]),
+          el('div.grid.grid-2', { style: { gap: '12px' } }, [
+            el('div.field', {}, [
+              el('label', {}, '类型'),
+              el('select.input', { id: 'it-kind' }, Object.entries({
+                theme: '主题皮肤', frame: '头像框', badge: '勋章', storage: '存储扩容', rename: '改名券',
+              }).map(([k, v]) => el('option', { value: k, selected: item?.kind === k }, v))),
+            ]),
+            el('div.field', {}, [el('label', {}, '库存 (-1 不限)'), el('input.input', { type: 'number', min: '-1', value: item?.stock ?? -1, id: 'it-stock' })]),
+          ]),
+          el('div.field', {}, [
+            el('label', {}, '生效值（JSON，可留空）'),
+            el('input.input', { value: item?.payload ? JSON.stringify(item.payload) : '', id: 'it-payload', placeholder: '{"value":"ocean"}' }),
+          ]),
+        ]),
+        footer: [
+          el('button.btn.btn-ghost', { type: 'button', onclick: () => dlg.close() }, '取消'),
+          el('button.btn.btn-primary', {
+            type: 'button',
+            onclick: async () => {
+              const payloadRaw = document.getElementById('it-payload').value.trim();
+              let payload = null;
+              if (payloadRaw) {
+                try {
+                  payload = JSON.parse(payloadRaw);
+                } catch {
+                  toast.error('生效值不是合法 JSON');
+                  return;
+                }
+              }
+              const data = {
+                name: document.getElementById('it-name').value.trim(),
+                description: document.getElementById('it-desc').value.trim(),
+                icon: document.getElementById('it-icon').value.trim() || '🎁',
+                price: Number(document.getElementById('it-price').value),
+                kind: document.getElementById('it-kind').value,
+                stock: Number(document.getElementById('it-stock').value),
+                payload,
+              };
+              if (!data.name || !data.price) return toast.error('名称与价格必填');
+              try {
+                if (item) await AdminAPI.updateShopItem(item.id, data);
+                else await AdminAPI.createShopItem(data);
+                toast.success(item ? '已保存' : '道具已创建');
+                dlg.close();
+                render();
+              } catch (err) {
+                toast.error(err.message);
+              }
+            },
+          }, '保存'),
+        ],
+      });
+    }
+  }
+
   async function renderMaintenance() {
     const [db, events] = await Promise.all([AdminAPI.database(), AdminAPI.events()]);
     clear(panel);

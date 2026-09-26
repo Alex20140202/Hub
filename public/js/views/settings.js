@@ -1,6 +1,6 @@
 import { el, clear } from '../lib/dom.js';
-import { store, applyTheme } from '../lib/store.js';
-import { AuthAPI, api } from '../lib/api.js';
+import { store, applyTheme, applySkin, SKINS } from '../lib/store.js';
+import { AuthAPI, api, ShopAPI } from '../lib/api.js';
 import { dateTime, timeAgo } from '../lib/format.js';
 import { avatar, badge, tabs, input } from '../ui/components.js';
 import { toast } from '../ui/toast.js';
@@ -238,13 +238,79 @@ export default async function settingsView(host) {
     };
     drawThemes();
 
+    /* 商城皮肤：只列出已拥有的 */
+    const skinRow = el('div.row.wrap', { style: { gap: '8px' } });
+    const drawSkins = (owned) => {
+      skinRow.replaceChildren();
+      const entries = Object.entries(SKINS);
+      for (const [key, skin] of entries) {
+        const has = owned.includes(key);
+        const btn = el(`button.chip${(store.skin || '') === key ? '.active' : ''}`, {
+          type: 'button',
+          disabled: !has,
+          title: has ? '' : '在积分商城兑换后解锁',
+        }, `${has ? '' : '🔒 '}${skin.name}`);
+        if (has) {
+          btn.addEventListener('click', async () => {
+            applySkin(key);
+            drawSkins(owned);
+            try {
+              await AuthAPI.update({ skin: key });
+            } catch {
+              /* 皮肤保存失败不阻塞 */
+            }
+          });
+        }
+        skinRow.append(btn);
+      }
+      skinRow.append(
+        el(`button.chip${!store.skin ? '.active' : ''}`, {
+          type: 'button',
+          onclick: async () => {
+            applySkin('');
+            drawSkins(owned);
+            try {
+              await AuthAPI.update({ skin: '' });
+            } catch {
+              /* 忽略 */
+            }
+          },
+        }, '默认'),
+      );
+      if (!owned.length) skinRow.append(el('span.small.muted', {}, '暂无皮肤，去积分商城兑换'));
+    };
+    drawSkins([]);
+
+    /* 头像框 */
+    const frameRow = el('div.row.wrap', { style: { gap: '8px' } });
+    ShopAPI.mine()
+      .then(({ items }) => {
+        const frames = items.filter((i) => i.kind === 'frame');
+        const themes = items.filter((i) => i.kind === 'theme');
+        skinRow.dataset.ready = '1';
+        drawSkins(themes.map((t) => t.payload?.value).filter(Boolean));
+        frameRow.replaceChildren(
+          ...(frames.length
+            ? frames.map((f) => el('span.badge.badge-amber', {}, `${f.icon} ${f.name}`))
+            : [el('span.small.muted', {}, '暂无头像框')]),
+        );
+      })
+      .catch(() => {
+        frameRow.replaceChildren(el('span.small.muted', {}, '加载失败'));
+      });
+
     const densityRow = el('div.col', { style: { gap: '8px' } }, [
       el('div.small.muted', {}, '界面尺寸由 CSS 变量 clamp() 自适应，无需手动设置。'),
     ]);
 
     panel.append(
       el('div.card-title', {}, '主题'),
-      el('div.field', {}, [el('label', {}, '配色方案'), themeRow]),
+      el('div.field', {}, [el('label', {}, '明暗模式'), themeRow]),
+      el('div.field', {}, [
+        el('label', {}, ['商城皮肤 ', el('a.small', { href: '#/points?tab=shop' }, '去兑换')]),
+        skinRow,
+      ]),
+      el('div.field', {}, [el('label', {}, '已购头像框'), frameRow]),
       el('div.card-title', { style: { marginTop: '24px' } }, '显示'),
       densityRow,
       el('button.btn.btn-ghost', {

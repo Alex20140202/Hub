@@ -4,6 +4,7 @@ import * as files from '../models/files.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
+import { earn } from '../models/points.js';
 import { get, run, all } from '../db.js';
 import { randomId, nowIso } from '../lib/id.js';
 import config from '../config.js';
@@ -79,7 +80,8 @@ router.post('/files', async (ctx) => {
     isPublic: v.bool(ctx.body.isPublic, true),
   });
   track('upload_file', { userId: ctx.user.id, meta: { size: record.size, mime: record.mime } });
-  ctx.created({ file: record });
+  const reward = earn(ctx.user.id, 'upload_file');
+  ctx.created({ file: record, reward });
 });
 
 router.patch('/files/:id', async (ctx) => {

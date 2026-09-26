@@ -14,18 +14,27 @@
 .brand-mark {
   width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center;
   font-weight: 800; color: #fff; font-size: 16px;
-  background: linear-gradient(135deg, var(--brand), var(--accent));
-  box-shadow: 0 4px 12px -4px hsl(var(--brand-h) 70% 50% / 0.6);
+  background: linear-gradient(140deg, var(--brand), var(--accent));
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.18), 0 6px 14px -6px hsl(var(--brand-h) 70% 50% / 0.65);
 }
 .brand-text { font-weight: 700; letter-spacing: -0.02em; font-size: 1.05rem; }
 
 .nav { display: flex; align-items: center; gap: 2px; margin-inline: auto; }
 .nav a {
-  padding: 7px 12px; border-radius: var(--radius-full); color: var(--text-soft);
-  font-size: 0.92rem; font-weight: 500; white-space: nowrap; transition: all var(--dur) var(--ease);
+  position: relative; padding: 8px 11px; color: var(--text-soft);
+  font-size: 0.9rem; font-weight: 500; white-space: nowrap;
+  border-radius: var(--radius-sm);
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.nav a::after {
+  content: ''; position: absolute; left: 11px; right: 11px; bottom: 2px; height: 2px;
+  border-radius: 2px; background: var(--brand); opacity: 0;
+  transform: scaleX(0.4); transform-origin: center;
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
 }
 .nav a:hover { background: var(--surface-3); color: var(--text); text-decoration: none; }
-.nav a.active { color: var(--brand-text); background: var(--brand-soft); font-weight: 600; }
+.nav a.active { color: var(--text); font-weight: 650; }
+.nav a.active::after { opacity: 1; transform: scaleX(1); }
 
 .header-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .auth-slot { display: flex; align-items: center; gap: 8px; }
@@ -53,14 +62,15 @@
 
 .user-menu { position: relative; }
 .user-trigger {
-  display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px;
+  display: flex; align-items: center; gap: 7px; padding: 3px 9px 3px 3px;
   border-radius: var(--radius-full); border: 1px solid var(--border); background: var(--surface);
-  transition: all var(--dur) var(--ease);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.user-trigger:hover { border-color: var(--border-strong); box-shadow: var(--shadow-sm); }
+.user-trigger:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
 .menu-pop {
-  position: absolute; right: 0; top: calc(100% + 8px); min-width: 210px; padding: 6px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  position: absolute; right: 0; top: calc(100% + 8px); min-width: 232px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg); z-index: 80; animation: pop 0.16s var(--ease);
 }
 @keyframes pop { from { opacity: 0; transform: translateY(-6px) scale(0.98); } }
@@ -84,12 +94,26 @@
 .footer-meta { display: flex; gap: var(--sp-3); font-size: 0.85rem; color: var(--text-muted); }
 
 /* ---------- 页面骨架 ---------- */
-.page { padding: var(--sp-6) 0 var(--sp-7); animation: fadeUp 0.3s var(--ease); }
+.page {
+  width: 100%;
+  max-width: calc(var(--container) + var(--sp-4) * 2);
+  margin-inline: auto;
+  padding: var(--sp-6) var(--sp-4) var(--sp-7);
+  animation: fadeUp 0.3s var(--ease);
+}
+/* 页面已自带横向内边距，内部 container 不再重复缩进 */
+.page > .container,
+.page .hero > .container { padding-inline: 0; }
+.page > .hero {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border);
+  margin-bottom: var(--sp-5);
+}
 @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } }
 
 .page-head { margin-bottom: var(--sp-5); }
-.page-head h1 { font-size: var(--step-3); }
-.page-head p { color: var(--text-muted); margin-top: 4px; }
+.page-head h1 { font-size: var(--step-3); letter-spacing: -0.03em; }
+.page-head p { color: var(--text-muted); margin-top: 4px; max-width: 60ch; }
 
 .section { margin-block: var(--sp-6); }
 .section-head {
@@ -97,6 +121,7 @@
   gap: var(--sp-3); margin-bottom: var(--sp-4);
 }
 .section-head h2 { font-size: var(--step-2); }
+.section-head h3 { font-size: var(--step-1); letter-spacing: -0.02em; }
 .section-head .link-more { font-size: 0.9rem; }
 
 .grid { display: grid; gap: var(--sp-4); }

@@ -328,7 +328,50 @@ TODO:
     );
   });
 
+  seedShop();
+
   return created;
+}
+
+/** 商城初始商品：主题 / 头像框 / 勋章 / 扩容 / 改名券 */
+const SHOP_ITEMS = [
+  ['theme-ocean', '海洋主题', '深蓝渐变配色，长时间阅读更护眼', '🌊', 120, 'theme', { value: 'ocean' }, 10, 10],
+  ['theme-forest', '森林主题', '低饱和绿意，适合长时间写作', '🌿', 120, 'theme', { value: 'forest' }, 10, 20],
+  ['theme-sunset', '落日主题', '暖橙渐变，夜间阅读更柔和', '🌇', 160, 'theme', { value: 'sunset' }, 8, 30],
+  ['theme-mono', '黑白极简', '去除一切彩色，只留内容本身', '⬛', 90, 'theme', { value: 'mono' }, -1, 40],
+  ['frame-gold', '鎏金头像框', '稀有度 ★★★ 适用于头像与用户主页', '🟡', 200, 'frame', { value: 'gold' }, 5, 50],
+  ['frame-neon', '霓虹头像框', '稀有度 ★★ 暗色模式下会发光', '🟣', 120, 'frame', { value: 'neon' }, 8, 60],
+  ['badge-pioneer', '开拓者勋章', '站点早期成员专属', '🏅', 300, 'badge', { value: 'pioneer', name: '开拓者' }, -1, 70],
+  ['badge-archivist', '收藏家勋章', '授予拥有 20 条书签的用户', '📚', 260, 'badge', { value: 'archivist', name: '收藏家' }, -1, 80],
+  ['storage-50', '存储扩容 +50MB', '永久提升单文件上传上限', '💾', 180, 'storage', { mb: 50 }, 20, 90],
+  ['storage-200', '存储扩容 +200MB', '适合放图床与素材', '🗄', 600, 'storage', { mb: 200 }, 5, 100],
+  ['rename-1', '用户名改名券', '可修改一次用户名', '✏️', 150, 'rename', null, 3, 110],
+];
+
+function seedShop() {
+  if (get('SELECT id FROM shop_items LIMIT 1')) return;
+  for (const [id, name, description, icon, price, kind, payload, stock, sort] of SHOP_ITEMS) {
+    run(
+      `INSERT INTO shop_items (id, name, description, icon, price, kind, payload, stock, active, sort, created_at)
+       VALUES (?,?,?,?,?,?,?,?,1,?,?)`,
+      [id, name, description, icon, price, kind, payload ? JSON.stringify(payload) : null, stock, sort, nowIso()],
+    );
+  }
+  // 种子用户发放新手礼包与一枚改名券，开箱即可体验商城
+  for (const u of all('SELECT id FROM users')) {
+    const balance = get('SELECT points FROM users WHERE id = ?', [u.id]).points;
+    run('UPDATE users SET points = points + 150 WHERE id = ?', [u.id]);
+    run(
+      'INSERT INTO point_logs (id, user_id, delta, balance, reason, detail, created_at) VALUES (?,?,?,?,?,?,?)',
+      [randomId(12), u.id, 150, balance + 150, 'welcome', '新手礼包', nowIso()],
+    );
+    run("INSERT OR IGNORE INTO user_items (id, user_id, item_id, state, created_at) VALUES (?,?,?,'owned',?)", [
+      randomId(12),
+      u.id,
+      'rename-1',
+      nowIso(),
+    ]);
+  }
 }
 
 /** 事件埋点（用于仪表盘趋势图） */

@@ -20,10 +20,10 @@
   --sp-7: 3rem;
   --sp-8: 4.5rem;
 
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --radius-xl: 26px;
+  --radius-sm: 7px;
+  --radius: 11px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
   --radius-full: 999px;
 
   --brand-h: 243;
@@ -57,10 +57,11 @@
   --text: #101728;
   --text-soft: #47536b;
   --text-muted: #7c879d;
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
-  --shadow: 0 6px 20px -6px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.05);
-  --shadow-lg: 0 24px 60px -20px rgba(16, 24, 40, 0.28);
-  --glass: rgba(255, 255, 255, 0.78);
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -10px rgba(16, 24, 40, 0.14);
+  --shadow-lg: 0 2px 6px rgba(16, 24, 40, 0.05), 0 28px 64px -24px rgba(16, 24, 40, 0.26);
+  --ring-brand: 0 0 0 3px hsl(var(--brand-h) 80% 60% / 0.22);
+  --glass: rgba(255, 255, 255, 0.72);
   --code-bg: #0f172a;
   --code-text: #e2e8f0;
   --chart-grid: #e8ecf5;
@@ -80,13 +81,111 @@
   --text: #e8edf7;
   --text-soft: #a7b2c7;
   --text-muted: #6b7793;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.75);
-  --glass: rgba(17, 24, 39, 0.72);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 32px -12px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 34px 76px -26px rgba(0, 0, 0, 0.8);
+  --ring-brand: 0 0 0 3px hsl(var(--brand-h) 85% 62% / 0.3);
+  --glass: rgba(13, 18, 32, 0.72);
   --brand-soft: hsl(var(--brand-h) 60% 18%);
   --brand-text: hsl(var(--brand-h) 85% 74%);
   --code-bg: #0b1220;
   --code-text: #dbe4f5;
   --chart-grid: #1e2839;
+}
+
+/* ---------- 商城皮肤（兑换后自动生效） ---------- */
+[data-skin="ocean"] {
+  --brand-h: 205;
+  --accent: #38bdf8;
+  --bg: #f2f8fd;
+  --bg-alt: #e6f1fa;
+  --surface-2: #f8fcff;
+  --surface-3: #eaf4fc;
+}
+[data-skin="ocean"][data-theme="dark"] {
+  --bg: #050c16;
+  --bg-alt: #08131f;
+  --surface: #0c1a2a;
+  --surface-2: #102334;
+  --surface-3: #16304a;
+  --border: #1b3450;
+  --border-strong: #2a4d70;
+}
+
+[data-skin="forest"] {
+  --brand-h: 152;
+  --accent: #4ade80;
+  --bg: #f4faf6;
+  --bg-alt: #e9f4ec;
+  --surface-2: #f9fdfa;
+  --surface-3: #ecf5ef;
+}
+[data-skin="forest"][data-theme="dark"] {
+  --bg: #060f0b;
+  --bg-alt: #0a1712;
+  --surface: #0f1d17;
+  --surface-2: #13261e;
+  --surface-3: #1a3327;
+  --border: #1d3a2c;
+  --border-strong: #2b5540;
+}
+
+[data-skin="sunset"] {
+  --brand-h: 22;
+  --accent: #fb923c;
+  --bg: #fff8f3;
+  --bg-alt: #fdeee4;
+  --surface-2: #fffaf7;
+  --surface-3: #fbeadb;
+}
+[data-skin="sunset"][data-theme="dark"] {
+  --bg: #140b06;
+  --bg-alt: #1d1109;
+  --surface: #241410;
+  --surface-2: #2e1a13;
+  --surface-3: #3d241a;
+  --border: #452a1e;
+  --border-strong: #653d2b;
+}
+
+[data-skin="mono"] {
+  --brand-h: 250;
+  --accent: #94a3b8;
+  --bg: #f6f6f7;
+  --bg-alt: #ededf0;
+  --surface: #ffffff;
+  --surface-2: #fbfbfc;
+  --surface-3: #f0f0f2;
+  --border: #e3e3e6;
+  --border-strong: #c9c9cf;
+  --text: #15161a;
+  --text-soft: #4a4d55;
+  --text-muted: #85888f;
+}
+[data-skin="mono"][data-theme="dark"] {
+  --bg: #0a0a0b;
+  --bg-alt: #111113;
+  --surface: #131315;
+  --surface-2: #17171a;
+  --surface-3: #1e1e22;
+  --border: #26262b;
+  --border-strong: #3a3a41;
+  --brand-soft: #22222a;
+  --brand-text: #b6b6c0;
+}
+
+/* ---------- 头像框（商城道具） ---------- */
+.avatar-wrap { position: relative; display: inline-grid; place-items: center; }
+.avatar-wrap .frame-ring {
+  position: absolute; inset: -5px; border-radius: 50%; pointer-events: none;
+}
+.avatar-wrap.frame-gold .frame-ring {
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #f59e0b, #fde68a, #b45309, #fcd34d) border-box;
+  -webkit-mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.avatar-wrap.frame-neon .frame-ring {
+  box-shadow: 0 0 0 2px #a855f7, 0 0 12px 2px color-mix(in srgb, #a855f7 60%, transparent);
 }

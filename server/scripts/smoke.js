@@ -663,6 +663,209 @@ try {
     eq('登出后受保护接口返回 401', protectedAfter.status, 401);
   }
 
+  section('积分体系与商城');
+  {
+    const fresh = await api('POST', '/api/auth/register', {
+      body: { username: 'pointy', email: 'pointy@hub.dev', password: 'pointy12345', nickname: '积分测试' },
+    });
+    eq('注册新用户成功', fresh.status, 201);
+    check('注册即送积分', (fresh.json?.user?.points || 0) > 0, `points=${fresh.json?.user?.points}`);
+    const pToken = fresh.json.token;
+    const pId = fresh.json.user.id;
+
+    const ov = await api('GET', '/api/points/overview', { token: pToken });
+    eq('积分总览可读', ov.status, 200);
+    check('总览含签到状态', typeof ov.json?.checkin?.doneToday === 'boolean');
+    check('总览含 7 天签到日历', Array.isArray(ov.json?.week) && ov.json.week.length === 7);
+    check('总览未签到时 doneToday=false', ov.json?.checkin?.doneToday === false);
+    check('总览含赚分规则表', Array.isArray(ov.json?.rules) && ov.json.rules.length > 0);
+
+    const ci = await api('POST', '/api/points/checkin', { token: pToken });
+    eq('签到成功', ci.status, 200);
+    check('签到返回正收益', ci.json?.gained > 0, `gained=${ci.json?.gained}`);
+    check('签到后余额增加', ci.json?.balance > fresh.json.user.points);
+    const ci2 = await api('POST', '/api/points/checkin', { token: pToken });
+    eq('重复签到被拒绝', ci2.status, 400);
+
+    const ov2 = await api('GET', '/api/points/overview', { token: pToken });
+    check('签到日历标记今天已签', ov2.json?.week?.some((w) => w.isToday && w.checked) === true);
+    eq('连续签到天数累加', ov2.json?.streak, 1);
+
+    const noAuth = await api('GET', '/api/points/overview');
+    eq('未登录读积分返回 401', noAuth.status, 401);
+
+    /* 赚分：发布文章 */
+    const cat = await api('GET', '/api/categories', { token: pToken });
+    const catId = cat.json?.items?.[0]?.id;
+    check('存在可选分类', !!catId);
+    const before = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    const post = await api('POST', '/api/posts', {
+      token: pToken,
+      body: { title: '积分测试文章', content: '发布后应当加分', categoryId: catId },
+    });
+    eq('发布文章成功', post.status, 201);
+    check('发布文章返回奖励', post.json?.reward?.delta === 20, `reward=${JSON.stringify(post.json?.reward)}`);
+    const after = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    eq('发布文章后余额 +20', after, before + 20);
+
+    /* 赚分：评论（验证每日上限） */
+    const base = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    for (let i = 0; i < 12; i += 1) {
+      await api('POST', `/api/posts/${post.json.post.id}/comments`, {
+        token: pToken,
+        body: { body: `刷分测试 ${i}` },
+      });
+    }
+    const capped = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    eq('评论每日上限生效（10 条 × 3 分）', capped, base + 30);
+
+    /* 赚分：完成待办 */
+    const todo = await api('POST', '/api/todos', { token: pToken, body: { title: '积分测试待办' } });
+    eq('创建待办成功', todo.status, 201);
+    const t0 = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    await api('POST', `/api/todos/${todo.json.todo.id}/toggle`, { token: pToken });
+    const t1 = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    eq('完成待办 +2 分', t1, t0 + 2);
+
+    /* 商城 */
+    const shop = await api('GET', '/api/shop/items', { token: pToken });
+    eq('商城商品可读', shop.status, 200);
+    check('商城有多种道具类型', new Set(shop.json.items.map((i) => i.kind)).size >= 4);
+    check('商城返回价格与说明', shop.json.items.every((i) => i.price > 0 && i.description));
+
+    const anonShop = await api('GET', '/api/shop/items');
+    eq('未登录可浏览商城', anonShop.status, 200);
+
+    const pricey = shop.json.items.find((i) => i.price > 1_000_000) || null;
+    const poor = await api('POST', `/api/shop/redeem/${shop.json.items.at(-1).id}`, { token: pToken });
+    eq('积分不足时兑换返回 400', poor.status, 400);
+    check('余额不足提示可读', /积分不足/.test(poor.json?.error || ''), poor.json?.error);
+
+    /* 攒够分兑换最便宜的皮肤 */
+    const skin = shop.json.items.find((i) => i.kind === 'theme');
+    const need = skin.price - (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    if (need > 0) {
+      const cat2 = (await api('GET', '/api/categories', { token: pToken })).json.items[0].id;
+      for (let i = 0; i < Math.ceil(need / 20) + 1; i += 1) {
+        await api('POST', '/api/posts', {
+          token: pToken,
+          body: { title: `攒分文章 ${i}`, content: 'x', categoryId: cat2 },
+        });
+      }
+    }
+    const bal = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+    check('余额足够兑换皮肤', bal >= skin.price, `balance=${bal} price=${skin.price}`);
+
+    const redeem = await api('POST', `/api/shop/redeem/${skin.id}`, { token: pToken });
+    eq('兑换成功', redeem.status, 200);
+    check('兑换后余额扣减', redeem.json?.points === bal - skin.price, `${redeem.json?.points}`);
+    const me = await api('GET', '/api/auth/me', { token: pToken });
+    eq('皮肤兑换后立即生效', me.json?.user?.skin, skin.payload?.value);
+
+    const again = await api('POST', `/api/shop/redeem/${skin.id}`, { token: pToken });
+    eq('重复兑换同一道具被拒绝', again.status, 400);
+
+    const mine = await api('GET', '/api/shop/mine', { token: pToken });
+    eq('我的道具可读', mine.status, 200);
+    check('已购列表含该皮肤', mine.json?.items?.some((i) => i.id === skin.id));
+
+    /* 改名券 */
+    const renameItem = shop.json.items.find((i) => i.kind === 'rename');
+    if (renameItem) {
+      const rBal = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+      if (rBal < renameItem.price) {
+        const cat3 = (await api('GET', '/api/categories', { token: pToken })).json.items[0].id;
+        for (let i = 0; i < Math.ceil((renameItem.price - rBal) / 20) + 1; i += 1) {
+          await api('POST', '/api/posts', { token: pToken, body: { title: `改名攒分 ${i}`, content: 'x', categoryId: cat3 } });
+        }
+      }
+      const beforeRename = (await api('GET', '/api/shop/mine', { token: pToken })).json.items.length;
+      const ownedRename = (await api('GET', '/api/shop/mine', { token: pToken })).json.items.find((i) => i.kind === 'rename');
+      if (!ownedRename) {
+        const r = await api('POST', `/api/shop/redeem/${renameItem.id}`, { token: pToken });
+        eq('兑换改名券', r.status, 200);
+      }
+      const myRename = (await api('GET', '/api/shop/mine', { token: pToken })).json.items.find((i) => i.kind === 'rename');
+      check('持有改名券', !!myRename, `items=${beforeRename}`);
+      if (myRename) {
+        check('我的道具返回持有记录 id', !!myRename.ownedId, `ownedId=${myRename.ownedId}`);
+        const used = await api('POST', `/api/shop/use/${myRename.ownedId}`, { token: pToken });
+        eq('使用改名券', used.status, 200);
+        const used2 = await api('POST', `/api/shop/use/${myRename.ownedId}`, { token: pToken });
+        eq('改名券不可重复使用', used2.status, 400);
+      }
+    }
+
+    /* 存储扩容真实生效 */
+    const storageItem = shop.json.items.find((i) => i.kind === 'storage' && (i.payload?.mb || 0) > 0);
+    if (storageItem) {
+      const beforeUpload = (await api('GET', '/api/auth/me', { token: pToken })).json.user.storageBonus || 0;
+      const sBal = (await api('GET', '/api/points/overview', { token: pToken })).json.points;
+      if (sBal < storageItem.price) {
+        const cat4 = (await api('GET', '/api/categories', { token: pToken })).json.items[0].id;
+        for (let i = 0; i < Math.ceil((storageItem.price - sBal) / 20) + 1; i += 1) {
+          await api('POST', '/api/posts', { token: pToken, body: { title: `扩容攒分 ${i}`, content: 'x', categoryId: cat4 } });
+        }
+      }
+      const r = await api('POST', `/api/shop/redeem/${storageItem.id}`, { token: pToken });
+      eq('兑换存储扩容', r.status, 200);
+      const afterBonus = (await api('GET', '/api/auth/me', { token: pToken })).json.user.storageBonus || 0;
+      eq('存储扩容立即提升配额', afterBonus, beforeUpload + storageItem.payload.mb);
+    }
+
+    /* 积分流水与排行榜 */
+    const logs = await api('GET', '/api/points/logs?limit=10', { token: pToken });
+    eq('积分流水可读', logs.status, 200);
+    check('流水含收入与支出', logs.json?.items?.some((l) => l.delta > 0) && logs.json?.items?.some((l) => l.delta < 0));
+    check('流水按时间倒序', (() => {
+      const t = logs.json.items.map((l) => l.createdAt);
+      return t.every((v, i) => i === 0 || t[i - 1] >= v);
+    })());
+    check('流水含收支汇总', typeof logs.json?.earned === 'number' && typeof logs.json?.spent === 'number');
+
+    const board = await api('GET', '/api/points/leaderboard?limit=5', { token: pToken });
+    eq('排行榜可读', board.status, 200);
+    check('排行榜最多返回 5 人', board.json?.items?.length <= 5);
+    check('排行榜按积分降序', (() => {
+      const p = board.json.items.map((u) => u.points);
+      return p.every((v, i) => i === 0 || p[i - 1] >= v);
+    })());
+
+    /* 点赞：他人文章被赞时作者得分 */
+    const like = await api('POST', `/api/posts/${post.json.post.id}/like`, { token: state.adminToken });
+    eq('管理员点赞成功', like.status, 200);
+    check('点赞不会给自己加分', (await api('GET', '/api/points/overview', { token: state.adminToken })).json.points >= 0);
+
+    /* 管理端 */
+    const adminPts = await api('GET', '/api/admin/points', { token: state.adminToken });
+    eq('管理员可读积分总览', adminPts.status, 200);
+    check('积分总览含经济指标', typeof adminPts.json?.economy?.totalPoints === 'number');
+    check('积分总览含商城统计', Array.isArray(adminPts.json?.shop?.byKind));
+    const forbidden = await api('GET', '/api/admin/points', { token: pToken });
+    eq('普通用户访问积分管理返回 403', forbidden.status, 403);
+
+    const created = await api('POST', '/api/admin/shop/items', {
+      token: state.adminToken,
+      body: { name: '测试道具', description: '冒烟测试用', icon: '🧪', price: 50, kind: 'badge', payload: { value: 'test' } },
+    });
+    eq('管理员可新增道具', created.status, 201);
+    const newId = created.json?.item?.id;
+    const off = await api('PATCH', `/api/admin/shop/items/${newId}`, { token: state.adminToken, body: { active: false } });
+    eq('管理员可下架道具', off.status, 200);
+    check('下架状态已生效', off.json?.item?.active === false);
+    const offRedeem = await api('POST', `/api/shop/redeem/${newId}`, { token: pToken });
+    eq('已下架道具无法兑换', offRedeem.status, 404);
+
+    const badKind = await api('POST', '/api/admin/shop/items', {
+      token: state.adminToken,
+      body: { name: '非法类型', price: 10, kind: 'not-a-kind' },
+    });
+    eq('非法道具类型被拒绝', badKind.status, 400);
+
+    await api('POST', '/api/auth/logout', { token: pToken });
+    void pId;
+  }
+
   section('输入校验与安全');
   {
     const badJson = await fetch(`${BASE}/api/posts`, {

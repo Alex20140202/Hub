@@ -9,6 +9,10 @@ import { track } from '../models/seed.js';
 import config from '../config.js';
 import { get, run, getSetting, setSetting } from '../db.js';
 import { createSession, revokeSession } from '../lib/session.js';
+import { earn } from '../models/points.js';
+
+/** 可选的商城皮肤（与 public/js/lib/store.js 的 SKINS 保持一致） */
+const SHOP_SKINS = ['ocean', 'forest', 'sunset', 'mono'];
 
 const router = new Router();
 const authLimiter = createRateLimiter({ windowMs: 60_000, max: 20 });
@@ -40,10 +44,12 @@ router.post('/register', async (ctx) => {
   if (password.length < 6) throw HttpError.badRequest('密码至少 6 位');
   const nickname = v.str(ctx.body.nickname, '昵称', { required: false, max: 24 }) || username;
   const isFirst = !get('SELECT id FROM users LIMIT 1');
-  const user = users.create({ username, email, password, nickname, role: isFirst ? 'admin' : 'user' });
+  let user = users.create({ username, email, password, nickname, role: isFirst ? 'admin' : 'user' });
   track('register', { userId: user.id });
+  const reward = earn(user.id, 'register');
+  user = users.findById(user.id); // 回读以带上最新积分
   const token = issue(ctx, user);
-  ctx.created({ user, token });
+  ctx.created({ user, token, reward });
 });
 
 router.post('/login', async (ctx) => {
@@ -89,6 +95,7 @@ router.patch('/me', async (ctx) => {
   if (ctx.body.website !== undefined) patch.website = v.url(ctx.body.website, '个人网站', { required: false });
   if (ctx.body.location !== undefined) patch.location = v.str(ctx.body.location, '所在地', { required: false, max: 60 });
   if (ctx.body.theme !== undefined) patch.theme = v.oneOf(ctx.body.theme, '主题', ['light', 'dark', 'system'], 'system');
+  if (ctx.body.skin !== undefined) patch.skin = ctx.body.skin ? v.oneOf(ctx.body.skin, '皮肤', SHOP_SKINS) : '';
   if (ctx.body.avatarColor !== undefined) patch.avatarColor = v.str(ctx.body.avatarColor, '主题色', { max: 20 });
   if (ctx.body.username !== undefined) patch.username = v.username(ctx.body.username);
   if (ctx.body.email !== undefined) patch.email = v.email(ctx.body.email);
@@ -101,7 +108,11 @@ router.patch('/me', async (ctx) => {
   }
   const user = users.updateProfile(ctx.user.id, patch);
   track('profile_update', { userId: user.id });
-  ctx.ok({ user });
+  // 资料一次性奖励：头像色之外再填昵称与简介即可拿满
+  const full = users.findFull(user.id);
+  const complete = !!(full.nickname && full.bio && full.avatar_color);
+  const reward = complete ? earn(user.id, 'complete_profile') : null;
+  ctx.ok({ user, reward });
 });
 
 router.get('/sessions', async (ctx) => {

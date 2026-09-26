@@ -28,6 +28,12 @@ export function openAuthMenu(anchor) {
       el('div', { style: { fontWeight: '700' } }, store.user.nickname || store.user.username),
       el('div.small.muted.truncate', {}, `@${store.user.username}`),
     ]),
+    el('a', { href: '#/points' }, [
+      el('span', {}, '🪙'),
+      el('span', { style: { flex: '1' } }, '积分中心'),
+      el('span.badge.badge-indigo', {}, String(store.user.points || 0)),
+    ]),
+    el('div.divider'),
     item('工作台', '#/dashboard', '📊'),
     item('个人主页', `#/u/${store.user.username}`, '👤'),
     item('设置', '#/settings', '⚙️'),

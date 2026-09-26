@@ -4,6 +4,7 @@ import * as comments from '../models/comments.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
+import { earn } from '../models/points.js';
 import { createHash } from 'node:crypto';
 import { get } from '../db.js';
 
@@ -126,7 +127,8 @@ router.post('/posts', async (ctx) => {
     featured: v.bool(ctx.body.featured),
   });
   track('create_post', { userId: ctx.user.id, target: post.id });
-  ctx.created({ post });
+  const reward = earn(ctx.user.id, 'create_post');
+  ctx.created({ post, reward });
 });
 
 router.put('/posts/:id', async (ctx) => {
@@ -161,7 +163,12 @@ router.delete('/posts/:id', async (ctx) => {
 
 router.post('/posts/:id/like', async (ctx) => {
   if (!ctx.user) throw HttpError.unauthorized();
-  ctx.ok(posts.toggleReaction(ctx.user.id, resolvePostId(ctx.params.id)));
+  const result = posts.toggleReaction(ctx.user.id, resolvePostId(ctx.params.id));
+  // 被点赞的一方获得积分（同一文章每天最多计 50 次）
+  if (result.active && result.authorId && result.authorId !== ctx.user.id) {
+    earn(result.authorId, 'receive_like', { detail: '文章被点赞' });
+  }
+  ctx.ok(result);
 });
 
 router.post('/posts/:id/bookmark', async (ctx) => {
@@ -193,9 +200,11 @@ router.post('/posts/:id/comments', async (ctx) => {
     ipHash,
   });
   track('create_comment', { userId: ctx.user?.id, target: ctx.params.id });
+  const reward = ctx.user ? earn(ctx.user.id, 'create_comment') : null;
   ctx.created({
     comment,
     pending: !ctx.user,
+    reward,
     message: ctx.user ? '评论已发布' : '评论已提交，审核通过后显示',
   });
 });
@@ -225,7 +234,12 @@ router.delete('/comments/:id', async (ctx) => {
 });
 
 router.post('/comments/:id/like', async (ctx) => {
-  ctx.ok({ likes: comments.like(ctx.params.id) });
+  const result = comments.like(ctx.params.id);
+  const authorId = get('SELECT author_id FROM comments WHERE id = ?', [ctx.params.id])?.author_id ?? null;
+  if (ctx.user && authorId && authorId !== ctx.user.id) {
+    earn(authorId, 'comment_liked', { detail: '评论被点赞' });
+  }
+  ctx.ok({ likes: result });
 });
 
 function configSalt() {

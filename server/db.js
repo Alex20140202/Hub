@@ -219,6 +219,72 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    name: '002_points',
+    sql: `
+      ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN streak INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN last_checkin TEXT;
+      ALTER TABLE users ADD COLUMN storage_bonus INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN frame TEXT;
+      ALTER TABLE users ADD COLUMN checkin_days INTEGER NOT NULL DEFAULT 0;
+
+      CREATE TABLE IF NOT EXISTS point_logs (
+        id         TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        delta      INTEGER NOT NULL,
+        balance    INTEGER NOT NULL,
+        reason     TEXT NOT NULL,
+        detail     TEXT,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_point_logs_user ON point_logs(user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS shop_items (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        icon        TEXT NOT NULL DEFAULT '🎁',
+        price       INTEGER NOT NULL,
+        kind        TEXT NOT NULL,
+        payload     TEXT,
+        stock       INTEGER NOT NULL DEFAULT -1,
+        active      INTEGER NOT NULL DEFAULT 1,
+        sort        INTEGER NOT NULL DEFAULT 100,
+        sold        INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS user_items (
+        id         TEXT PRIMARY KEY,
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_id    TEXT NOT NULL REFERENCES shop_items(id) ON DELETE CASCADE,
+        state      TEXT NOT NULL DEFAULT 'owned',
+        created_at TEXT NOT NULL,
+        used_at    TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_items_unique ON user_items(user_id, item_id);
+    `,
+  },
+  {
+    name: '003_checkins',
+    sql: `
+      CREATE TABLE IF NOT EXISTS checkins (
+        user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day        TEXT NOT NULL,
+        streak     INTEGER NOT NULL,
+        gained     INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, day)
+      );
+    `,
+  },
+  {
+    name: '004_skin',
+    sql: `
+      ALTER TABLE users ADD COLUMN skin TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 function currentVersion() {

@@ -2,7 +2,7 @@ import { el } from '../lib/dom.js';
 import { store } from '../lib/store.js';
 import { PublicAPI } from '../lib/api.js';
 import { numberFmt, dateShort, timeAgo } from '../lib/format.js';
-import { avatar, badge, empty, skeleton, statCard } from '../ui/components.js';
+import { avatar, avatarFramed, badge, empty, skeleton, statCard } from '../ui/components.js';
 import { postCard } from './blog.js';
 
 export default async function userView(host, ctx) {
@@ -22,7 +22,7 @@ export default async function userView(host, ctx) {
     el('section.hero', { style: { padding: '48px 0 32px' } }, [
       el('div.container', {}, [
         el('div.row.wrap', { style: { gap: '20px' } }, [
-          avatar(user, 'xl'),
+          avatarFramed(user, 'xl'),
           el('div.grow', { style: { minWidth: '200px' } }, [
             el('div.row', { style: { gap: '8px' } }, [
               el('h1', { style: { fontSize: 'var(--step-3)' } }, user.nickname || user.username),

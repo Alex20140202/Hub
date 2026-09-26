@@ -321,14 +321,16 @@ export function toggleReaction(userId, postId, kind = 'like') {
     postId,
     kind,
   ]);
+  const likes = () => get('SELECT likes FROM posts WHERE id = ?', [postId]).likes;
+  const authorId = get('SELECT author_id FROM posts WHERE id = ?', [postId])?.author_id ?? null;
   if (existing) {
     run('DELETE FROM reactions WHERE user_id = ? AND post_id = ? AND kind = ?', [userId, postId, kind]);
     run('UPDATE posts SET likes = MAX(0, likes - 1) WHERE id = ?', [postId]);
-    return { active: false, likes: get('SELECT likes FROM posts WHERE id = ?', [postId]).likes };
+    return { active: false, likes: likes(), authorId };
   }
   run('INSERT INTO reactions (user_id, post_id, kind) VALUES (?,?,?)', [userId, postId, kind]);
   run('UPDATE posts SET likes = likes + 1 WHERE id = ?', [postId]);
-  return { active: true, likes: get('SELECT likes FROM posts WHERE id = ?', [postId]).likes };
+  return { active: true, likes: likes(), authorId };
 }
 
 export function reacted(userId, postId, kind = 'like') {

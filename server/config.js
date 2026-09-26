@@ -48,7 +48,7 @@ export const config = {
   env: process.env.NODE_ENV || 'development',
   isProd,
   host: process.env.HOST || '0.0.0.0',
-  port: num(process.env.PORT, 3000),
+  port: num(process.env.PORT, 3535),
   paths: {
     root: ROOT,
     public: path.join(ROOT, 'public'),

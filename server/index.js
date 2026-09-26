@@ -22,6 +22,7 @@ import postRoutes from './routes/posts.js';
 import workspaceRoutes from './routes/workspace.js';
 import miscRoutes from './routes/misc.js';
 import publicRoutes from './routes/public.js';
+import pointsRoutes from './routes/points.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,7 @@ api.mount('', postRoutes); // /posts /categories /tags /comments
 api.mount('', workspaceRoutes); // /notes /todos /links
 api.mount('', miscRoutes); // /shorts /files /subscribe /export /health
 api.mount('', publicRoutes); // /stats /search /users /chat /admin
+api.mount('', pointsRoutes); // /points /shop
 
 const globalLimiter = createRateLimiter({ windowMs: 60_000, max: 1200 });
 

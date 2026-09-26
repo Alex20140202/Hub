@@ -13,6 +13,14 @@ export function avatar(user, size = '') {
   return el(cls, { style: { background: color }, title: name }, initials(name));
 }
 
+/** 带商城头像框的头像 */
+export function avatarFramed(user, size = '') {
+  const node = avatar(user, size);
+  const frame = user?.frame;
+  if (!frame) return node;
+  return el(`div.avatar-wrap.frame-${frame}`, {}, [node, el('i.frame-ring')]);
+}
+
 /** 徽标 */
 export function badge(text, kind = '') {
   return el(`span.badge${kind ? `.badge-${kind}` : ''}`, {}, text);

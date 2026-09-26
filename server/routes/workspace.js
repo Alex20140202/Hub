@@ -5,6 +5,7 @@ import * as links from '../models/links.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
+import { earn } from '../models/points.js';
 
 const router = new Router();
 
@@ -36,7 +37,8 @@ router.post('/notes', async (ctx) => {
     tags: v.list(ctx.body.tags, '标签', { max: 10, maxItem: 20 }),
   });
   track('create_note', { userId: ctx.user.id });
-  ctx.created({ note });
+  const reward = earn(ctx.user.id, 'create_note');
+  ctx.created({ note, reward });
 });
 
 router.get('/notes/:id', async (ctx) => ctx.ok({ note: notes.find(ctx.params.id, ctx.user.id) }));
@@ -100,7 +102,9 @@ router.patch('/todos/:id', async (ctx) => {
 
 router.post('/todos/:id/toggle', async (ctx) => {
   const current = todos.find(ctx.params.id, ctx.user.id);
-  ctx.ok({ todo: todos.update(ctx.params.id, ctx.user.id, { done: !current.done }) });
+  const done = !current.done;
+  const reward = done ? earn(ctx.user.id, 'finish_todo', { detail: '完成待办' }) : null;
+  ctx.ok({ todo: todos.update(ctx.params.id, ctx.user.id, { done }), reward });
 });
 
 router.delete('/todos/:id', async (ctx) => {
