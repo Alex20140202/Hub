@@ -340,22 +340,8 @@ tbody tr:hover { background: var(--surface-2); }
 .file-info { padding: 10px 12px; }
 .file-info .n { font-size: 0.85rem; font-weight: 600; }
 
-/* ---------- 聊天 ---------- */
-.chat-shell { display: grid; grid-template-rows: auto 1fr auto; height: calc(100vh - var(--header-h) - 40px); min-height: 460px; }
-.chat-log { overflow-y: auto; padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
-.msg { display: flex; gap: 10px; max-width: 78%; }
-.msg.me { align-self: flex-end; flex-direction: row-reverse; }
-.msg .bubble {
-  padding: 9px 13px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border);
-  font-size: 0.92rem; word-break: break-word; white-space: pre-wrap;
-}
-.msg.me .bubble { background: var(--brand); color: #fff; border-color: transparent; }
-.msg.system { align-self: center; max-width: 90%; }
-.msg.system .bubble { background: transparent; border: none; color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 2px 0; }
-.msg .who { font-size: 0.76rem; color: var(--text-muted); margin-bottom: 3px; }
-.chat-input { display: flex; gap: 10px; padding: var(--sp-3); border-top: 1px solid var(--border); background: var(--surface); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
-.chat-input .input { border-radius: var(--radius-full); }
-.online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); }
+/* ---------- 聊天（骨架与状态指示，主体样式见 chat.css） ---------- */
+.online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 25%, transparent); flex: none; }
 .online-dot.off { background: var(--text-muted); box-shadow: none; }
 
 /* ---------- 认证页 ---------- */
