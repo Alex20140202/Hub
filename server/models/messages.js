@@ -56,6 +56,7 @@ function shape(row, viewer = {}) {
 
 const SELECT = `
   SELECT m.*,
+         m.rowid AS seq,
          ? AS viewer,
          (SELECT r.nickname FROM messages r WHERE r.id = m.reply_to) AS reply_nickname,
          (SELECT r.body      FROM messages r WHERE r.id = m.reply_to) AS reply_body,
@@ -72,6 +73,25 @@ const view = (v) => (v && v.id !== undefined ? v : { id: v ?? null, role: null, 
 function joined(id, viewerId = null) {
   return get(`${SELECT} WHERE m.id = ?`, [viewerId, id]);
 }
+
+/* ================= 分页游标 ================= */
+
+/**
+ * created_at 只有毫秒精度，批量插入时必然撞时间戳。
+ * 单纯用 `created_at < cursor` 翻页会整段跳过同毫秒的消息（静默丢消息），
+ * 所以排序必须是 (created_at, rowid) 的全序，rowid 由 SQLite 保证单调递增。
+ */
+const ORDER = 'ORDER BY m.created_at DESC, m.rowid DESC';
+const encodeCursor = (row) => `${row.created_at}|${row.seq}`;
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  const raw = String(cursor);
+  const i = raw.lastIndexOf('|');
+  if (i < 0) return null;
+  const at = raw.slice(0, i);
+  const seq = Number(raw.slice(i + 1));
+  return Number.isFinite(seq) ? { at, seq } : null;
+};
 
 /** 广播用：与 history() 输出结构完全一致 */
 export function shapeMessage(row, viewer, reactionMap) {
@@ -92,7 +112,7 @@ export function findMessage(id, viewer) {
 
 /**
  * 分页历史：返回时间升序的 messages，以及用于「加载更早」的游标。
- * before 传上一页最早一条的 createdAt。
+ * before 传上一页最早一条的游标（服务端下发的不透明字符串）。
  */
 export function history(room = 'lobby', viewer, { limit = C.pageSize, before = null } = {}) {
   const v = view(viewer);
@@ -100,18 +120,24 @@ export function history(room = 'lobby', viewer, { limit = C.pageSize, before = n
   const params = [v.id];
   let where = 'WHERE m.room = ?';
   params.push(room);
-  if (before) {
+  const cur = decodeCursor(before);
+  if (before && !cur) {
+    // 游标格式不认识时退化为只按时间比较，至少不会报错
     where += ' AND m.created_at < ?';
-    params.push(before);
+    params.push(String(before).slice(0, 40));
+  } else if (cur) {
+    where += ' AND (m.created_at < ? OR (m.created_at = ? AND m.rowid < ?))';
+    params.push(cur.at, cur.at, cur.seq);
   }
-  const rows = all(`${SELECT} ${where} ORDER BY m.created_at DESC LIMIT ?`, [...params, take + 1]);
+  const rows = all(`${SELECT} ${where} ${ORDER} LIMIT ?`, [...params, take + 1]);
   const hasMore = rows.length > take;
-  const page = (hasMore ? rows.slice(0, take) : rows).reverse();
+  const page = hasMore ? rows.slice(0, take) : rows;
+  page.reverse();
   const reactionMap = chat.reactionsFor(page.map((r) => r.id));
   return {
     items: page.map((r) => shapeMessage(r, v, reactionMap)),
     hasMore,
-    cursor: hasMore && page.length ? page[0].created_at : null,
+    cursor: hasMore && page.length ? encodeCursor(page[0]) : null,
   };
 }
 
@@ -173,11 +199,15 @@ export function add({
   return joined(id);
 }
 
-/** 裁剪单个房间，只保留最近 keep 条（按 id 倒序即写入顺序） */
+/**
+ * 裁剪单个房间，只保留最近 keep 条。
+ * 必须按 rowid（写入顺序）而不是 id —— id 是随机串，按 id 排序会留下任意子集，
+ * 结果是「刚发的消息被裁掉、很久以前的反而留着」。
+ */
 export function prune(room = 'lobby', keep = C.keepPerRoom) {
   run(
     `DELETE FROM messages
-      WHERE room = ? AND id NOT IN (SELECT id FROM messages WHERE room = ? ORDER BY id DESC LIMIT ?)`,
+      WHERE room = ? AND rowid NOT IN (SELECT rowid FROM messages WHERE room = ? ORDER BY rowid DESC LIMIT ?)`,
     [room, room, keep],
   );
   run(
@@ -263,7 +293,7 @@ export function search({ room = null, q = '', kind = null, limit = 50, before = 
     params.push(before);
   }
   const take = Math.max(1, Math.min(C.pageMax, Number(limit) || 50));
-  const rows = all(`${SELECT} ${where} ORDER BY m.created_at DESC LIMIT ?`, [...params, take]);
+  const rows = all(`${SELECT} ${where} ${ORDER} LIMIT ?`, [...params, take]);
   return rows.map((r) => shapeMessage(r, { id: null, role: null, actor: null }, chat.reactionsFor(rows.map((x) => x.id))));
 }
 
