@@ -591,7 +591,9 @@ try {
       body: { body: '游客冒烟消息', nickname: '同名游客', guestId: 'smokeguest0001' },
     });
     eq('游客可经 REST 发消息', guestPost.status, 201);
-    check('他人视角不可编辑该消息', guestPost.json?.message?.canEdit === false);
+    // 响应按「作者视角」塑形，所以这里 isMe/canEdit 都应为 true；
+    // 越权由下面用另一个 guestId 发 PATCH 来验证
+    check('作者视角可编辑自己的游客消息', guestPost.json?.message?.isMe === true && guestPost.json?.message?.canEdit === true);
     const guestOverreach = await api('PATCH', `/api/chat/messages/${guestPost.json?.message?.id}`, {
       body: { body: '篡改', guestId: 'smokeguest0002' },
     });

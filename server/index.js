@@ -129,7 +129,10 @@ const server = http.createServer(async (req, res) => {
 
     throw HttpError.notFound();
   } catch (err) {
-    const status = err.status || err.statusCode || 500;
+    // 兜底：任何非数字状态码都不能进 writeHead，否则 catch 内再抛异常，
+    // 响应永远发不出去，请求方只会一直等到超时
+    const raw = Number(err.status ?? err.statusCode);
+    const status = Number.isInteger(raw) && raw >= 400 && raw <= 599 ? raw : 500;
     if (status >= 500) log.error(err);
     else log.debug(`${status} ${err.message}`);
     if (res.headersSent) {

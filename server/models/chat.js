@@ -1,5 +1,6 @@
 import { all, get, run, tx } from '../db.js';
 import { randomId, nowIso } from '../lib/id.js';
+import HttpError from '../lib/http-error.js';
 import config from '../config.js';
 
 const C = config.chat;
@@ -341,13 +342,19 @@ export function muteStatus(actor) {
   };
 }
 
+/**
+ * 禁言断言。
+ * 必须抛 HttpError：顶层错误处理器读的是 `err.status`（HTTP 状态码），
+ * 把 mute 状态对象塞进 `status` 会让 writeHead 收到非法值，
+ * catch 里再抛一次异常，响应永远发不出去，客户端表现为一直挂住。
+ */
 export function assertNotMuted(actor) {
   const status = muteStatus(actor);
   if (!status) return;
-  const err = new Error(status.permanent ? '你已被禁言' : `你已被禁言，剩余 ${Math.ceil((status.remainingMs || 0) / 60000)} 分钟`);
-  err.code = 'muted';
-  err.status = status;
-  throw err;
+  throw HttpError.forbidden(
+    status.permanent ? '你已被禁言' : `你已被禁言，剩余 ${Math.ceil((status.remainingMs || 0) / 60000)} 分钟`,
+    { code: 'muted', mute: status },
+  );
 }
 
 export function mute({ target, reason = '', minutes = 0, createdBy = null }) {
