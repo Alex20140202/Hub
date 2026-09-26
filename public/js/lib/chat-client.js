@@ -210,6 +210,14 @@ export class ChatClient extends EventTarget {
         this.muted = payload.status;
         this._emit('muted', payload);
         return;
+      case 'nick':
+        // 改名后同步 you.nickname，否则「（我）」标记与发言归属判断都会用旧名字
+        if (payload.nickname) {
+          this.nick = payload.nickname;
+          if (this.you) this.you = { ...this.you, nickname: payload.nickname };
+        }
+        this._emit('nick', payload);
+        return;
       case 'error':
         // 带 clientId 说明是某条消息被拒，视图层据此回滚乐观气泡
         if (payload.clientId) this._reject(payload.clientId, payload);

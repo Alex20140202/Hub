@@ -312,8 +312,13 @@ export default async function chatView(host, ctx = {}) {
     const target = state.messages.find((m) => m.id === id);
     if (!target) return;
     target.reactions = reactions;
-    const node = log.querySelector(`[data-id="${cssEscape(id)}"]`);
-    if (node) renderReactions(node, target);
+    const node = nodeFor({ id });
+    if (!node) return;
+    // 替换掉消息里那个空容器，否则每点一次就多挂一个 .msg-reactions
+    const box = node.querySelector('.msg-reactions');
+    const fresh = renderReactions(target);
+    if (box) box.replaceWith(fresh);
+    else node.append(fresh);
   });
 
   client.on('presence', ({ room, online, onlineList }) => {
