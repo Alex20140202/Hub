@@ -6,6 +6,7 @@ import * as posts from '../models/posts.js';
 import * as messages from '../models/messages.js';
 import * as chat from '../models/chat.js';
 import * as points from '../models/points.js';
+import * as chatGateway from '../ws/chat.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
@@ -182,7 +183,7 @@ router.post('/chat/messages', async (ctx) => {
   const gate = chatGateway.takeRateLimit(actor);
   if (!gate.ok) {
     const secs = Math.ceil(gate.retryAfterMs / 1000);
-    ctx.res.setHeader?.('Retry-After', String(secs));
+    ctx.setHeader('Retry-After', String(secs));
     throw HttpError.tooMany(`发言过于频繁，请 ${secs} 秒后再试`);
   }
   chat.assertNotMuted(actor);
@@ -271,23 +272,36 @@ router.delete('/admin/chat/rooms/:slug', async (ctx) => {
   ctx.ok({ ok: true });
 });
 
-/** 禁言（仅管理员，target 传昵称） */
+/** 禁言（仅管理员）：target 可为 userId / guestId / 昵称 */
 router.post('/admin/chat/mute', async (ctx) => {
   requireAdmin(ctx);
-  const target = v.str(ctx.body.target, '目标昵称', { min: 1, max: 20 });
+  const label = v.str(ctx.body.target, '禁言目标', { min: 1, max: 40 });
+  let actor;
+  try {
+    actor = chatGateway.resolveMuteTarget(label);
+  } catch {
+    throw HttpError.badRequest('目标昵称无效');
+  }
   const minutes = v.int(ctx.body.minutes, '分钟', { min: 0, max: 10080, fallback: 10 });
   const reason = v.str(ctx.body.reason, '原因', { required: false, max: 80 }) || '管理员禁言';
-  const name = chat.sanitizeNickname(target, '');
-  if (!name) throw HttpError.badRequest('目标昵称无效');
-  ctx.created({ mute: chat.mute({ target: `g:${name}`, minutes, reason, createdBy: ctx.user.id }), target: name });
+  const mute = chat.mute({ target: actor, minutes, reason, createdBy: ctx.user.id });
+  chatGateway.pushMutes();
+  ctx.created({ mute, target: label, actor });
 });
 
 /** 解除禁言（仅管理员） */
 router.delete('/admin/chat/mute', async (ctx) => {
   requireAdmin(ctx);
-  const target = v.str(ctx.query.target, '目标昵称', { min: 1, max: 20 });
-  const name = chat.sanitizeNickname(target, '');
-  ctx.ok({ ok: chat.unmute(`g:${name}`), target: name });
+  const label = v.str(ctx.query.target, '禁言目标', { min: 1, max: 40 });
+  let actor;
+  try {
+    actor = chatGateway.resolveMuteTarget(label);
+  } catch {
+    throw HttpError.badRequest('目标昵称无效');
+  }
+  const ok = chat.unmute(actor);
+  chatGateway.pushMutes();
+  ctx.ok({ ok, target: label, actor });
 });
 
 /* ================= 管理后台 ================= */

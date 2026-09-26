@@ -23,6 +23,7 @@ let bridge = {
   broadcast: () => false,
   broadcastMessage: () => 0,
   limit: () => ({ ok: true, retryAfterMs: 0 }),
+  muteState: () => 0,
   ready: false,
 };
 
@@ -44,6 +45,26 @@ export function takeRateLimit(actor) {
 /** 供 routes 层调用：房间清空后通知在线客户端清屏 */
 export function pushCleared(room) {
   return bridge.broadcast({ type: 'cleared', room }, room);
+}
+
+/** 供 routes 层调用：管理端改完禁言后，把最新状态推给所有连接 */
+export function pushMutes() {
+  return bridge.muteState();
+}
+
+/**
+ * 禁言目标解析：userId / guestId / 昵称 → 稳定 actor。
+ * 管理端、REST 与 /mute 指令共用，避免三处各写一套前缀规则。
+ */
+export function resolveMuteTarget(input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) throw new Error('请填写禁言目标');
+  if (/^u:/.test(raw) && raw.length > 2) return raw;
+  if (/^g:/.test(raw)) return chat.normalizeGuestId(raw.slice(2)) ? raw : `n:${raw}`;
+  if (/^n:/.test(raw)) return `n:${chat.sanitizeNickname(raw.slice(2), '')}`;
+  const gid = chat.normalizeGuestId(raw);
+  if (gid) return `g:${gid}`;
+  return `n:${chat.sanitizeNickname(raw, '')}`;
 }
 
 /**
@@ -168,6 +189,14 @@ export function setupChat(server) {
     }
   };
 
+  /** 广播禁言状态：被禁言者前端立刻禁用输入框 */
+  const pushMuteState = (conns = clients) => {
+    for (const c of conns) {
+      const status = c.data ? chat.muteStatus(c.data.actor) : null;
+      c.sendJSON({ type: 'muted', status });
+    }
+  };
+
   const pushPresence = (room) => {
     broadcast({ type: 'presence', room, online: chat.roomCounts().get(room) || 0, onlineList: onlineList(room) }, room);
     broadcastRooms();
@@ -198,13 +227,21 @@ export function setupChat(server) {
   }, 2000);
   pruneTyping.unref?.();
 
-  /** 统一改名入口：更新身份、同步在线状态、迁移历史消息归属 */
+  /**
+   * 统一改名入口。
+   * 有 guestId 的游客身份与昵称解耦：改名只换展示名，不迁移历史消息归属，
+   * 否则两个同名游客会互相「认领」消息。无 guestId 的旧客户端才走昵称迁移。
+   */
   const applyNickname = (conn, next) => {
     const prev = conn.data.actor;
     conn.data.nickname = next;
-    conn.data.actor = chat.actorKey({ userId: conn.data.user?.id || null, nickname: next });
+    conn.data.actor = chat.actorKey({
+      userId: conn.data.user?.id || null,
+      nickname: next,
+      guestId: conn.data.guestId,
+    });
     chat.movePresence(conn.id, conn.data.room, next, conn.data.user?.id || null);
-    if (prev && prev !== conn.data.actor && !conn.data.user) {
+    if (prev && prev !== conn.data.actor && !conn.data.user && !conn.data.guestId) {
       const moved = chat.renameActor(prev, conn.data.actor);
       if (moved) log(`昵称变更 ${prev} → ${conn.data.actor}，迁移 ${moved} 条历史消息归属`);
     }
@@ -239,7 +276,12 @@ export function setupChat(server) {
       conn.data.nickname = user
         ? user.nickname || user.username
         : chat.sanitizeNickname(conn.query.get('nick') || '', `游客-${String(conn.socket.remotePort || 0).slice(-4)}`);
-      conn.data.actor = chat.actorKey({ userId: user?.id || null, nickname: conn.data.nickname });
+      conn.data.guestId = user ? '' : chat.normalizeGuestId(conn.query.get('gid') || '');
+      conn.data.actor = chat.actorKey({
+        userId: user?.id || null,
+        nickname: conn.data.nickname,
+        guestId: conn.data.guestId,
+      });
       conn.data.typingSentAt = 0;
 
       const mute = chat.muteStatus(conn.data.actor);
@@ -319,13 +361,16 @@ export function setupChat(server) {
           for (const c of roomOccupants(target)) c.sendJSON({ type: 'cleared', room: target });
         },
         mute: (name, minutes, reason) => {
-          chat.mute({ target: `g:${name}`, minutes, reason, createdBy: user?.id || null });
-          for (const c of clients) {
-            const status = c.data ? chat.muteStatus(c.data.actor) : null;
-            if (status) c.sendJSON({ type: 'muted', status });
-          }
+          // 与管理后台同一套解析：userId / guestId / 昵称都能禁言
+          const target = resolveMuteTarget(name);
+          chat.mute({ target, minutes, reason, createdBy: user?.id || null });
+          pushMuteState(clients);
         },
-        unmute: (name) => chat.unmute(`g:${name}`),
+        unmute: (name) => {
+          const target = resolveMuteTarget(name);
+          chat.unmute(target);
+          pushMuteState(clients);
+        },
       });
 
       /* ---------- 消息处理 ---------- */
@@ -621,6 +666,7 @@ export function setupChat(server) {
     },
     broadcastMessage: (row, room = 'lobby', extra = {}) => broadcastMessage(row, room, extra),
     limit: (actor) => limiter.take(actor),
+    muteState: () => pushMuteState(clients),
   };
 
   process.once('exit', () => {

@@ -261,15 +261,14 @@ export default async function chatView(host, ctx = {}) {
   });
 
   // 乐观消息失败：标红并允许重发
-  client.on('reject', ({ payload, meta }) => {
-    const node = log.querySelector(`[data-client="${cssEscape(payload.clientId)}"]`);
+  client.on('reject', ({ clientId, payload }) => {
+    const node = log.querySelector(`[data-client="${cssEscape(clientId)}"]`);
     if (node) {
       node.classList.add('failed');
       node.title = payload.message || '发送失败';
     }
-    const idx = state.messages.findIndex((m) => m.clientId === payload.clientId);
+    const idx = state.messages.findIndex((m) => m.clientId === clientId);
     if (idx >= 0) state.messages[idx].failed = payload.message;
-    void meta;
     if (payload.code === 'muted') {
       toast.error(payload.message);
       client.muted = { permanent: true };
@@ -322,6 +321,7 @@ export default async function chatView(host, ctx = {}) {
   });
 
   client.on('presence', ({ room, online, onlineList }) => {
+    // 只有当前所在房间的成员列表才替换；其它房间只需刷新角标
     if (room !== state.room) {
       renderRooms();
       return;
@@ -342,8 +342,8 @@ export default async function chatView(host, ctx = {}) {
     systemLine(reason === 'switch' ? `${nickname} 去了别的房间` : `${nickname} 离开了聊天室`);
   });
 
-  client.on('typing', ({ who }) => {
-    if (state.room !== state.room) return;
+  client.on('typing', ({ who, room: r }) => {
+    if (r && r !== state.room) return;
     state.typing = who || [];
     renderTyping();
   });
@@ -485,7 +485,6 @@ export default async function chatView(host, ctx = {}) {
   }
 
   function updatePeople() {
-    state.online = client.you ? [client.you.nickname, ...state.online.filter((n) => n !== client.you.nickname)] : state.online;
     renderPeople();
   }
 

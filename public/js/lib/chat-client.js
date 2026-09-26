@@ -6,11 +6,39 @@ import { token } from './api.js';
 
 const DRAFT_KEY = 'hub.chat.draft';
 const NICK_KEY = 'hub.nick';
+const GID_KEY = 'hub.gid';
 const MAX_QUEUE = 30;
 const MAX_BACKOFF = 15_000;
 const PING_INTERVAL = 20_000;
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/**
+ * 访客标识。
+ * 服务端用它做稳定身份：只用昵称的话，两个同名游客会共享 actor，
+ * 从而可以互相「编辑/删除」对方的消息。随机串存在本地，刷新与重连都保持不变。
+ */
+export function guestId() {
+  try {
+    let id = localStorage.getItem(GID_KEY);
+    // 服务端要求 8~40 位 [A-Za-z0-9_-]
+    if (!id || !/^[A-Za-z0-9_-]{8,40}$/.test(id)) {
+      const rand = crypto.getRandomValues(new Uint8Array(12));
+      id = Array.from(rand, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 24);
+      localStorage.setItem(GID_KEY, id);
+    }
+    return id;
+  } catch {
+    // 隐私模式：无持久化身份，游客消息归属按昵称降级
+    return '';
+  }
+}
+
+export function resetGuestId() {
+  try {
+    localStorage.removeItem(GID_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 /** 读取草稿：按房间分别保存 */
 export function loadDraft(room) {
@@ -63,19 +91,36 @@ export class ChatClient extends EventTarget {
     this._pingTimer = null;
     this._retryTimer = null;
     this._lastPingAt = 0;
+    this._lastTypingSent = 0;
     this._stopped = false;
+    /** 连接代次：旧 socket 的迟到事件必须忽略，否则会重复重连 */
+    this._gen = 0;
+    this.guestId = guestId();
   }
 
   connect() {
     this._clearRetry();
     this.manualClose = false;
     this._stopped = false;
+    // 重复调用 connect() 时先断开旧连接，避免同一客户端开两条 socket
+    if (this.ws && this.ws.readyState < WebSocket.CLOSING) {
+      this._gen++;
+      try {
+        this.ws.close();
+      } catch {
+        /* ignore */
+      }
+    }
+    const gen = ++this._gen;
+    const stale = () => gen !== this._gen;
+
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const params = new URLSearchParams({ t: String(Date.now()) });
     const t = token.get();
     if (t) params.set('token', t);
     if (this.nick) params.set('nick', this.nick);
     if (this.room) params.set('room', this.room);
+    if (!t && this.guestId) params.set('gid', this.guestId);
 
     this._setStatus('connecting');
     let ws;
@@ -89,6 +134,7 @@ export class ChatClient extends EventTarget {
     this.ws = ws;
 
     ws.addEventListener('open', () => {
+      if (stale()) return;
       this.retry = 0;
       this._setStatus('online');
       this._startPing();
@@ -97,6 +143,7 @@ export class ChatClient extends EventTarget {
     });
 
     ws.addEventListener('message', (e) => {
+      if (stale()) return;
       let payload;
       try {
         payload = JSON.parse(e.data);
@@ -107,6 +154,7 @@ export class ChatClient extends EventTarget {
     });
 
     ws.addEventListener('close', (e) => {
+      if (stale()) return;
       this._stopPing();
       if (this.status !== 'online') this._setStatus('offline');
       else this._setStatus('reconnecting');
@@ -120,6 +168,7 @@ export class ChatClient extends EventTarget {
 
     ws.addEventListener('error', () => {
       // close 事件紧随其后，重连逻辑统一在那里处理
+      if (stale()) return;
       if (this.status === 'connecting') this._setStatus('error');
     });
   }
@@ -171,15 +220,25 @@ export class ChatClient extends EventTarget {
     }
   }
 
-  /** 服务端补发的历史里如果已有同一条，说明乐观消息已落库 */
+  /**
+   * 重连后服务端会补发期间错过的历史。若其中已有同一条，说明乐观消息已落库。
+   * 只按 body+nickname 匹配会误判（同文连发），所以先按 room 对齐，
+   * 再按「未确认消息的最早一条」顺序配对，尽量让气泡落位正确。
+   */
   _reconcile(items) {
+    if (!this.pending.size) return;
+    const byRoom = new Map();
     for (const m of items) {
-      for (const [clientId, meta] of this.pending) {
-        if (m.body === meta.body && m.nickname === this.you?.nickname) {
-          this._settle(clientId, m);
-          break;
-        }
-      }
+      if (!byRoom.has(m.room)) byRoom.set(m.room, []);
+      byRoom.get(m.room).push(m);
+    }
+    const waiting = [...this.pending.entries()].sort((a, b) => a[1].at - b[1].at);
+    for (const [clientId, meta] of waiting) {
+      const pool = byRoom.get(meta.room) || [];
+      const idx = pool.findIndex((m) => m.body === meta.body && m.nickname === this.you?.nickname);
+      if (idx < 0) continue;
+      const [hit] = pool.splice(idx, 1);
+      this._settle(clientId, hit);
     }
   }
 
@@ -342,12 +401,14 @@ export class ChatClient extends EventTarget {
     this._emit('retry', { attempt: this.retry, delay: Math.round(delay) });
   }
 
-  /** 手动立即重连 */
+  /** 手动立即重连：代次自增让旧 socket 的 close 事件失效，避免同时排两次重连 */
   reconnectNow() {
     this._stopped = false;
     this.manualClose = false;
     this.retry = 0;
     this._clearRetry();
+    this._gen++;
+    this._stopPing();
     try {
       this.ws?.close();
     } catch {
@@ -361,6 +422,7 @@ export class ChatClient extends EventTarget {
     this._stopped = true;
     this.manualClose = true;
     this._clearRetry();
+    this._gen++;
     this._stopPing();
     try {
       this.ws?.close();

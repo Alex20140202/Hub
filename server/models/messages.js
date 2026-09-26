@@ -37,8 +37,10 @@ function shape(row, viewer = {}) {
     nickname: row.nickname,
     userId: row.user_id || null,
     isMe: mine,
-    canEdit: isAuthed && mine && !deleted,
-    canDelete: (isAuthed && mine) || admin,
+    // 后端 updateMessage()/deleteMessage() 允许游客凭 actor 改自己的消息，
+    // 这里必须同步放开，否则前端根本不显示「编辑/删除」按钮
+    canEdit: mine && !deleted,
+    canDelete: mine || admin,
     editedAt: row.edited_at || null,
     deleted,
     createdAt: row.created_at,

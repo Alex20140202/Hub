@@ -87,9 +87,24 @@ export function sanitizeNickname(input, fallback = '游客') {
   return cut || fallback;
 }
 
-/** 稳定的连接身份：登录用户用 user id，游客用规范化昵称 */
-export function actorKey({ userId = null, nickname }) {
-  return userId ? `u:${userId}` : `g:${nickname}`;
+/** 访客标识：浏览器本地生成的随机串，服务端只做字符集收敛 */
+const GUEST_ID_RE = /^[A-Za-z0-9_-]{8,40}$/;
+
+export function normalizeGuestId(input) {
+  const raw = String(input ?? '').trim();
+  return GUEST_ID_RE.test(raw) ? raw : '';
+}
+
+/**
+ * 连接身份。
+ * 登录用户用 user id；游客必须用 guestId，
+ * 只用昵称会让两个同名游客共享 actor，从而互相「编辑/删除」对方消息。
+ * 没有 guestId 的老客户端/脚本降级到昵称（功能受限但不报错）。
+ */
+export function actorKey({ userId = null, nickname, guestId = '' }) {
+  if (userId) return `u:${userId}`;
+  const gid = normalizeGuestId(guestId);
+  return gid ? `g:${gid}` : `n:${nickname}`;
 }
 
 /* ================= 房间 ================= */
