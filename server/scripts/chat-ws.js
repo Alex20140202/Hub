@@ -6,6 +6,10 @@ import http from 'node:http';
 import { setupChat } from '../ws/chat.js';
 import * as chat from '../models/chat.js';
 import * as messagesMod from '../models/messages.js';
+import { get } from '../db.js';
+
+/** 房间内消息总数：分页断言要按真实条数推算，脚本才能重复执行 */
+const countIn = (room) => Number(get('SELECT COUNT(*) AS c FROM messages WHERE room = ?', [room])?.c || 0);
 
 const PORT = 39415;
 const base = `ws://localhost:${PORT}/ws`;
@@ -349,9 +353,9 @@ console.log('\n[13] 历史分页');
   // 走模型直灌 70 条，绕开 HTTP 与限流；房间内可能已有历史数据，
   // 因此期望值按实际条数推算，保证脚本可重复执行
   const msgs = messagesMod;
-  const before = msgs.history('dev', null, { limit: 1 }).items.length;
+  const before = countIn('dev');
   for (let i = 0; i < 70; i++) msgs.add({ room: 'dev', nickname: 'Bot', body: '第 ' + i + ' 条' });
-  const total = msgs.history('dev', null, { limit: 1 }).items.length;
+  const total = countIn('dev');
   const c = client('nick=Read&room=dev');
   const rd = await c.waitFor((p) => p.type === 'ready');
   const expectFirst = Math.min(50, total);
@@ -412,8 +416,68 @@ b.send({ type: 'typing', room: 'ghost' });
 await sleep(200);
 ok('对不存在房间输入中被忽略', b.ws.readyState === WebSocket.OPEN);
 
-/* ---------- 16. 连接清理 ---------- */
-console.log('\n[16] 连接清理');
+/* ---------- 16. 游客稳定身份（guestId） ---------- */
+console.log('\n[16] 游客身份隔离');
+{
+  // 同一个昵称、不同 guestId：必须互不可见「我的消息」，否则可以互相删改
+  const gidA = 'guestAaaaaaaaa';
+  const gidB = 'guestBbbbbbbbbb';
+  const g1 = client(`nick=Same&gid=${gidA}`);
+  const g2 = client(`nick=Same&gid=${gidB}`);
+  const [r1, r2] = [await g1.waitFor((p) => p.type === 'ready'), await g2.waitFor((p) => p.type === 'ready')];
+  ok('guestId 参与身份判定', r1.you.nickname === 'Same' && r2.you.nickname === 'Same');
+
+  g1.send({ type: 'chat', body: '我是 A' });
+  const own = await g1.waitFor((p) => p.type === 'message' && p.message.body === '我是 A');
+  const other = await g2.waitFor((p) => p.type === 'message' && p.message.body === '我是 A');
+  ok('本人视角 isMe=true', own.message.isMe === true);
+  ok('同名不同 guestId 的另一端 isMe=false', other.message.isMe === false);
+  ok('他人消息不可编辑/删除', other.message.canEdit === false && other.message.canDelete === false);
+
+  // 越权尝试必须被服务端拒绝
+  g2.send({ type: 'delete', id: own.message.id });
+  const denied = await g2.waitFor((p) => p.type === 'error' && (p.code === 'forbidden' || p.code === 'not_found'));
+  ok('越权删除被服务端拒绝', !!denied, denied?.message || '');
+  g2.send({ type: 'edit', id: own.message.id, body: '被篡改' });
+  await sleep(250);
+  const still = messagesMod.findMessage(own.message.id, { id: null, role: null, actor: chat.actorKey({ nickname: 'Same', guestId: gidA }) });
+  ok('越权编辑未落库', still && still.body === '我是 A', still?.body);
+
+  // 改名不改归属：guestId 稳定，历史消息仍是自己的
+  g1.send({ type: 'nick', nick: 'Renamed' });
+  await g1.waitFor((p) => p.type === 'nick' && p.nickname === 'Renamed');
+  await sleep(150);
+  const mineAfter = messagesMod.findMessage(own.message.id, { id: null, role: null, actor: `g:${gidA}` });
+  ok('改名后历史消息仍归属本人', mineAfter?.isMe === true, `isMe=${mineAfter?.isMe}`);
+
+  g1.close();
+  g2.close();
+  await sleep(300);
+}
+{
+  ok('guestId 字符集被收敛', chat.normalizeGuestId('short') === '');
+  ok('合法 guestId 保留', chat.normalizeGuestId('abc12345-x_y') === 'abc12345-x_y');
+  ok('含非法字符的 guestId 被拒', chat.normalizeGuestId('abc/../12345') === '');
+  ok('actorKey 优先用 userId', chat.actorKey({ userId: 'u1', nickname: 'x', guestId: 'abc12345' }) === 'u:u1');
+  ok('actorKey 游客用 guestId', chat.actorKey({ nickname: 'x', guestId: 'abc12345' }) === 'g:abc12345');
+  ok('actorKey 无 guestId 降级到昵称', chat.actorKey({ nickname: '小明' }) === 'n:小明');
+}
+
+/* ---------- 17. 禁言目标解析 ---------- */
+console.log('\n[17] 禁言目标解析');
+{
+  const { resolveMuteTarget } = await import('../ws/chat.js');
+  ok('userId 前缀直通', resolveMuteTarget('u:12') === 'u:12');
+  ok('guestId 前缀保留', resolveMuteTarget('g:abc12345') === 'g:abc12345');
+  ok('裸 guestId 自动识别', resolveMuteTarget('abc12345') === 'g:abc12345');
+  ok('昵称降级为 n: 前缀', resolveMuteTarget('小明') === 'n:小明');
+  const purified = resolveMuteTarget('小明<script>alert(1)</script>');
+  ok('昵称里的尖括号被净化', !/[<>&"'`]/.test(purified), purified);
+  ok('净化后仍可作为禁言目标', chat.normalizeGuestId(purified) === '' && purified.startsWith('n:'), purified);
+}
+
+/* ---------- 18. 连接清理 ---------- */
+console.log('\n[18] 连接清理');
 const beforeCount = clients.size;
 const t = client('nick=Tmp2');
 await t.waitFor((p) => p.type === 'ready');

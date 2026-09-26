@@ -12,7 +12,8 @@
     "dev": "node --watch server/index.js",
     "reset": "node server/scripts/reset.js",
     "seed": "node server/scripts/reset.js --seed-only",
-    "smoke": "node server/scripts/smoke.js"
+    "smoke": "node server/scripts/smoke.js",
+    "test:chat": "node server/scripts/chat-ws.js"
   },
   "keywords": [
     "nodejs",
