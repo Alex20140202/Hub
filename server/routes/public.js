@@ -5,6 +5,7 @@ import * as comments from '../models/comments.js';
 import * as posts from '../models/posts.js';
 import * as messages from '../models/messages.js';
 import * as chat from '../models/chat.js';
+import * as points from '../models/points.js';
 import * as v from '../lib/validate.js';
 import HttpError from '../lib/http-error.js';
 import { track } from '../models/seed.js';
@@ -160,6 +161,27 @@ router.get('/chat/history', async (ctx) => {
       { limit, before },
     ),
   });
+});
+
+/** 直接发消息（HTTP 兜底，便于脚本/机器人接入） */
+router.post('/chat/messages', async (ctx) => {
+  const room = v.str(ctx.body.room, '房间', { required: false, max: 20 }) || chat.SYSTEM_ROOM;
+  if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
+  const body = v.str(ctx.body.body, '消息', { min: 1, max: 2000, trim: false });
+  const nickname = ctx.user?.nickname || ctx.user?.username || v.str(ctx.body.nickname, '昵称', { min: 1, max: 20 });
+  const row = messages.add({
+    room,
+    nickname,
+    body,
+    userId: ctx.user?.id || null,
+    replyTo: v.str(ctx.body.replyTo, '引用', { required: false, max: 40 }) || null,
+    actor: chat.actorKey({ userId: ctx.user?.id || null, nickname }),
+  });
+  if (ctx.user) {
+    points.earn(ctx.user.id, 'chat_message');
+    chat.markRead(ctx.user.id, room, row.created_at);
+  }
+  ctx.created({ message: messages.shapeMessage(row, { id: ctx.user?.id || null, role: ctx.user?.role || null, actor: chat.actorKey({ userId: ctx.user?.id || null, nickname }) }) });
 });
 
 /** 未读数 */

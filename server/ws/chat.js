@@ -166,6 +166,18 @@ export function setupChat(server) {
   }, 2000);
   pruneTyping.unref?.();
 
+  /** 统一改名入口：更新身份、同步在线状态、迁移历史消息归属 */
+  const applyNickname = (conn, next) => {
+    const prev = conn.data.actor;
+    conn.data.nickname = next;
+    conn.data.actor = chat.actorKey({ userId: conn.data.user?.id || null, nickname: next });
+    chat.movePresence(conn.id, conn.data.room, next, conn.data.user?.id || null);
+    if (prev && prev !== conn.data.actor && !conn.data.user) {
+      const moved = chat.renameActor(prev, conn.data.actor);
+      if (moved) log(`昵称变更 ${prev} → ${conn.data.actor}，迁移 ${moved} 条历史消息归属`);
+    }
+  };
+
   const systemMessage = (room, text, meta = null) => {
     const row = messages.addSystem(room, text, meta);
     broadcastMessage(row, room);
@@ -260,9 +272,7 @@ export function setupChat(server) {
         onlineList: onlineList(target),
         rooms: chat.listRooms(new Map(), null),
         setNickname: (next) => {
-          conn.data.nickname = next;
-          conn.data.actor = chat.actorKey({ userId: user?.id || null, nickname: next });
-          chat.movePresence(conn.id, target, next, user?.id || null);
+          applyNickname(conn, next);
         },
         setTopic: (topic) => {
           try {
@@ -345,11 +355,10 @@ export function setupChat(server) {
             if (user) return reply('forbidden', '登录后昵称跟随账号');
             const next = chat.sanitizeNickname(inMsg.nick, '');
             if (!next) return reply('invalid', '昵称不能为空');
-            conn.data.nickname = next;
-            conn.data.actor = chat.actorKey({ userId: null, nickname: next });
-            chat.movePresence(conn.id, conn.data.room, next, null);
+            applyNickname(conn, next);
             send(conn, { type: 'nick', nickname: next, actor: conn.data.actor });
             pushPresence(conn.data.room);
+            broadcastRooms();
             return;
           }
 
@@ -461,7 +470,7 @@ export function setupChat(server) {
           /* 编辑 */
           case 'edit': {
             const id = String(inMsg.id || '');
-            const res = messages.updateMessage(id, inMsg.body, { userId: user?.id || null, role: conn.data.role });
+            const res = messages.updateMessage(id, inMsg.body, { userId: user?.id || null, actor: conn.data.actor, role: conn.data.role });
             if (res.error) {
               const map = {
                 not_found: '消息不存在',
@@ -491,7 +500,7 @@ export function setupChat(server) {
           /* 删除 */
           case 'delete': {
             const id = String(inMsg.id || '');
-            const res = messages.deleteMessage(id, { userId: user?.id || null, role: conn.data.role });
+            const res = messages.deleteMessage(id, { userId: user?.id || null, actor: conn.data.actor, role: conn.data.role });
             if (res.error) {
               const map = { not_found: '消息不存在', forbidden: '没有权限删除', deleted: '消息已删除' };
               return reply(res.error, map[res.error] || '删除失败', { messageId: id });

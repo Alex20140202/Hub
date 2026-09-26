@@ -78,9 +78,9 @@ export function sanitizeNickname(input, fallback = '游客') {
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\ufeff]/g, '')
     .replace(/[\s\u3000]+/g, ' ')
     .trim();
-  // 保留文字、数字与常见标点，剔除 < > & " ' ` 等可用于伪造 HTML/属性的字符
+  // 保留文字、数字与常见标点；剔除 < > & " ' ` （可伪造 HTML/属性）与 | （被用作 reactions 的分组分隔符）
   const cleaned = raw.replace(
-    /[^\p{L}\p{N}\p{Extended_Pictographic} _.,!?()[\]{}#*+=~$^|/\\:;《》「」、。，！？；（）【】…—·]/gu,
+    /[^\p{L}\p{N}\p{Extended_Pictographic} _.,!?()[\]{}#*+=~$^/\\:;《》「」、。，！？；（）【】…—·]/gu,
     '',
   );
   const cut = cleaned.slice(0, 20).trim();
@@ -217,6 +217,20 @@ export function deleteRoom(slug) {
   });
 }
 
+/**
+ * 游客改名后迁移其历史消息的归属，否则改名就等于放弃旧消息的编辑/删除权。
+ * 顺带证明 meta 里的其他字段（如 /me 的 command）不会被 json_set 破坏。
+ */
+export function renameActor(oldActor, newActor) {
+  if (!oldActor || !newActor || oldActor === newActor) return 0;
+  const r = run(
+    `UPDATE messages SET meta = json_set(meta, '$.actor', ?)
+      WHERE json_extract(meta, '$.actor') IS NOT NULL AND json_extract(meta, '$.actor') = ?`,
+    [newActor, oldActor],
+  );
+  return r.changes || 0;
+}
+
 /* ================= 已读位点 ================= */
 
 export function lastRead(userId, room) {
@@ -253,8 +267,9 @@ export function reactionsFor(messageIds) {
   const ids = [...messageIds].filter(Boolean);
   if (!ids.length) return map;
   const placeholders = ids.map(() => '?').join(',');
+  // 分隔符必须显式指定：GROUP_CONCAT 默认是 ','，而昵称里可能含逗号，会把 actors 切错
   const rows = all(
-    `SELECT message_id, emoji, COUNT(*) AS c, GROUP_CONCAT(actor) AS actors
+    `SELECT message_id, emoji, COUNT(*) AS c, GROUP_CONCAT(actor, '|') AS actors
        FROM chat_reactions WHERE message_id IN (${placeholders}) GROUP BY message_id, emoji`,
     ids,
   );

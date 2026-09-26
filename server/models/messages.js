@@ -75,6 +75,7 @@ function joined(id, viewerId = null) {
 
 /** 广播用：与 history() 输出结构完全一致 */
 export function shapeMessage(row, viewer, reactionMap) {
+  if (!row) return null;
   const v = view(viewer);
   const list = reactionMap?.get(row.id) || [];
   const shaped = shape({ ...row, viewer: v.id }, v);
@@ -188,11 +189,22 @@ export function prune(room = 'lobby', keep = C.keepPerRoom) {
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
-export function updateMessage(id, body, { userId = null, role = null }) {
+/**
+ * 归属判定：
+ *  - 登录用户按 user_id
+ *  - 游客按 meta.actor（改名时会迁移，见 chat.renameActor）
+ * 绝不能用 null === null 判断，否则任意游客可改任意游客消息。
+ */
+function owns(row, { userId = null, actor = null }) {
+  if (row.user_id) return !!userId && row.user_id === userId;
+  const owner = parseMeta(row.meta).actor;
+  return !!owner && !!actor && owner === actor;
+}
+
+export function updateMessage(id, body, { userId = null, actor = null, role = null }) {
   const row = get('SELECT * FROM messages WHERE id = ?', [id]);
   if (!row) return { error: 'not_found' };
-  // 游客消息 user_id 为 NULL，不能用 null===null 判等，否则任意游客可改任意游客消息
-  if (!row.user_id || row.user_id !== userId) return { error: 'forbidden' };
+  if (!owns(row, { userId, actor })) return { error: 'forbidden' };
   if (row.deleted_at) return { error: 'deleted' };
   if (Date.now() - new Date(row.created_at).getTime() > EDIT_WINDOW_MS) return { error: 'expired' };
   let text;
@@ -206,11 +218,10 @@ export function updateMessage(id, body, { userId = null, role = null }) {
   return { message: joined(id), editedAt: at, role };
 }
 
-export function deleteMessage(id, { userId = null, role = null }) {
+export function deleteMessage(id, { userId = null, actor = null, role = null }) {
   const row = get('SELECT * FROM messages WHERE id = ?', [id]);
   if (!row) return { error: 'not_found' };
-  const ownMessage = !!row.user_id && row.user_id === userId;
-  if (!ownMessage && role !== 'admin') return { error: 'forbidden' };
+  if (!owns(row, { userId, actor }) && role !== 'admin') return { error: 'forbidden' };
   if (row.deleted_at) return { error: 'deleted' };
   const at = nowIso();
   // 软删除：保留行以便引用它的回复显示占位
