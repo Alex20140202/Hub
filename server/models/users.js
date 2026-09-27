@@ -126,6 +126,8 @@ export function remove(id) {
     if (admins <= 1) throw HttpError.badRequest('至少需要保留一个管理员');
   }
   run('DELETE FROM users WHERE id = ?', [id]);
+  // chat_reads 改成按 actor 存储后没有外键，删除用户时要手动清掉已读位点
+  run('DELETE FROM chat_reads WHERE actor = ?', [`u:${id}`]);
   return true;
 }
 

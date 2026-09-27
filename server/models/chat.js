@@ -129,36 +129,59 @@ function shapeRoom(row) {
 export const SYSTEM_ROOM = 'lobby';
 
 /**
- * 列出房间并附带在线人数与当前用户的未读数。
+ * 列出房间并附带在线人数与当前 actor 的未读数。
  * live 为 Map<slug, count>，来自 WebSocket 连接的实时统计。
  */
-export function listRooms(liveCounts, viewerId = null) {
+export function listRooms(liveCounts, actor = null) {
   const counts = liveCounts instanceof Map ? liveCounts : new Map();
   const rooms = all('SELECT * FROM chat_rooms ORDER BY sort, name');
   return rooms.map((row) => {
-    const lastRead = viewerId
-      ? (get('SELECT last_read FROM chat_reads WHERE user_id = ? AND room = ?', [viewerId, row.slug])?.last_read ||
-        '1970-01-01T00:00:00.000Z')
-      : '1970-01-01T00:00:00.000Z';
+    const since = actor ? lastRead(actor, row.slug) : null;
     return shapeRoom({
       ...row,
       online: counts.get(row.slug) || 0,
-      last_read: viewerId ? lastRead : null,
+      last_read: since,
     });
   });
 }
 
-/** 带未读数的房间列表（登录用户才有意义） */
-export function listRoomsWithUnread(liveCounts, viewerId) {
-  return listRooms(liveCounts, viewerId).map((room) => {
-    if (!viewerId) return { ...room, unread: 0 };
-    const row = get(
-      `SELECT COUNT(*) AS c FROM messages
-        WHERE room = ? AND created_at > ? AND (user_id IS NULL OR user_id != ?)`,
-      [room.slug, room.lastRead, viewerId],
-    );
-    return { ...room, unread: row?.c || 0 };
-  });
+/** 未读统计的起点：没有任何已读位点时的兜底时间 */
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
+/**
+ * 「这条消息是不是我发的」SQL 片段。
+ * actor 存在 meta JSON 里（游客没有 user_id），老数据可能只有 user_id。
+ * 参数顺序：[actor, actor.slice(2)]
+ */
+const NOT_MINE = `NOT (
+  COALESCE(json_extract(meta, '$.actor'), '') = ?
+  OR (COALESCE(json_extract(meta, '$.actor'), '') = '' AND COALESCE(user_id, '') = ?)
+)`;
+
+/**
+ * 带未读数的房间列表。未读 = 比我的已读位点更新的、且不是我发的消息。
+ * 游客同样适用（actor 为 g:<guestId>），所以 guest 也能看到未读角标。
+ *
+ * 性能：broadcastRooms 在每条消息后都会调用，连接数最多 500，
+ * 每个房间各跑一次 COUNT 会放大成上千次查询。
+ * 这里用一条 GROUP BY + CASE 查询一次算完所有房间。
+ */
+export function listRoomsWithUnread(liveCounts, actor) {
+  const rooms = listRooms(liveCounts, actor);
+  if (!actor) return rooms.map((room) => ({ ...room, unread: 0 }));
+
+  // 每个房间的已读位点不同，必须逐房间判断，不能用统一的最小值（会多算）
+  const select = rooms
+    .map((_, i) => `SUM(CASE WHEN room = ? AND created_at > ? THEN 1 ELSE 0 END) AS r${i}`)
+    .join(', ');
+  const params = [];
+  for (const room of rooms) {
+    params.push(room.slug, room.lastRead || EPOCH);
+  }
+  params.push(actor, actor.slice(2));
+
+  const row = get(`SELECT ${select} FROM messages WHERE ${NOT_MINE}`, params);
+  return rooms.map((room, i) => ({ ...room, unread: Number(row?.[`r${i}`] || 0) }));
 }
 
 export function findRoom(slug) {
@@ -244,36 +267,31 @@ export function renameActor(oldActor, newActor) {
       WHERE json_extract(meta, '$.actor') IS NOT NULL AND json_extract(meta, '$.actor') = ?`,
     [newActor, oldActor],
   );
+  // 已读位点同样跟着迁移：n:<昵称> 降级身份改名后会丢自己的未读进度
+  run(
+    `UPDATE chat_reads SET actor = ? WHERE actor = ?
+       AND room NOT IN (SELECT room FROM chat_reads WHERE actor = ?)`,
+    [newActor, oldActor, newActor],
+  );
+  run('DELETE FROM chat_reads WHERE actor = ?', [oldActor]);
   return r.changes || 0;
 }
 
-/* ================= 已读位点 ================= */
+/* ================= 已读位点（按 actor，游客同样适用） ================= */
 
-export function lastRead(userId, room) {
-  if (!userId) return null;
-  return get('SELECT last_read FROM chat_reads WHERE user_id = ? AND room = ?', [userId, room])?.last_read || null;
+export function lastRead(actor, room) {
+  if (!actor) return null;
+  return get('SELECT last_read FROM chat_reads WHERE actor = ? AND room = ?', [actor, room])?.last_read || null;
 }
 
-export function markRead(userId, room, at = nowIso()) {
-  if (!userId) return null;
+export function markRead(actor, room, at = nowIso()) {
+  if (!actor) return null;
   run(
-    `INSERT INTO chat_reads (user_id, room, last_read) VALUES (?,?,?)
-     ON CONFLICT(user_id, room) DO UPDATE SET last_read = MAX(last_read, excluded.last_read)`,
-    [userId, room, at],
+    `INSERT INTO chat_reads (actor, room, last_read) VALUES (?,?,?)
+     ON CONFLICT(actor, room) DO UPDATE SET last_read = MAX(last_read, excluded.last_read)`,
+    [actor, room, at],
   );
   return at;
-}
-
-/** 房间内比某时间更新的消息数（不含自己发的） */
-export function unreadCount(userId, room) {
-  if (!userId) return 0;
-  const at = lastRead(userId, room) || '1970-01-01T00:00:00.000Z';
-  const row = get(
-    `SELECT COUNT(*) AS c FROM messages
-      WHERE room = ? AND created_at > ? AND (user_id IS NULL OR user_id != ?)`,
-    [room, at, userId],
-  );
-  return row?.c || 0;
 }
 
 /* ================= 表情回应 ================= */

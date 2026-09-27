@@ -48,7 +48,8 @@ function view(render, { auth = false, admin = false, title = null } = {}) {
     const host = el('div.page.view-enter');
     clear(outlet()).append(host);
     try {
-      await render(host, ctx);
+      // 视图可以返回一个清理函数，路由切换时自动调用
+      return await render(host, ctx);
     } catch (err) {
       if (err.status === 401) {
         go(`/login?next=${encodeURIComponent(ctx.path)}`, { replace: true });

@@ -144,8 +144,17 @@ export class WsConnection extends EventEmitter {
         this.emit('pong');
         break;
       case OP.CLOSE: {
-        const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005;
-        const reason = payload.length > 2 ? payload.subarray(2).toString('utf8') : '';
+        // 对端可能不带状态码（空 payload）。此时按「无状态码」处理，
+        // 回一个 1000 正常关闭：1005/1006 是保留码，绝不能写进线上的 close 帧，
+        // 否则浏览器会报 "broken close frame containing a reserved status code"。
+        let code = 1000;
+        let reason = '';
+        if (payload.length >= 2) {
+          code = payload.readUInt16BE(0);
+          reason = payload.length > 2 ? payload.subarray(2).toString('utf8') : '';
+        }
+        // 1005/1006/1015 与未分配区间都不能出现在 close 帧里
+        if (code === 1005 || code === 1006 || code === 1015 || (code >= 1016 && code <= 2999)) code = 1000;
         this.close(code, reason, true);
         break;
       }
@@ -247,6 +256,11 @@ export class WsConnection extends EventEmitter {
 
   close(code = 1000, reason = '', remote = false) {
     if (!this.open) return;
+    // RFC 6455 §7.4.1：1004/1005/1006/1015 与 1016-2999 是保留码，
+    // 写进 close 帧会让浏览器直接判定为协议错误。
+    const reserved =
+      !Number.isInteger(code) || code < 1000 || code > 4999 || (code >= 1004 && code <= 1006) || (code >= 1015 && code <= 2999);
+    if (reserved) code = 1000;
     this.closeInfo = { code, reason };
     const body = Buffer.alloc(2 + Buffer.byteLength(reason));
     body.writeUInt16BE(code, 0);

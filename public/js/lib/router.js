@@ -59,18 +59,37 @@ export function currentRoute() {
   return current;
 }
 
+/** 上一个视图返回的清理函数（关闭连接、清定时器、摘监听） */
+let disposeCurrent = null;
+
+function runDispose() {
+  const fn = disposeCurrent;
+  disposeCurrent = null;
+  if (typeof fn === 'function') {
+    try {
+      fn();
+    } catch (err) {
+      console.error('[router] 视图清理失败', err);
+    }
+  }
+}
+
 async function render() {
   const { path, query, search } = normalize(location.hash);
   const found = match(path);
   const view = found?.route.view || notFoundHandler;
   if (!view) return;
 
+  // 切换视图前先拆掉上一个，避免 WebSocket / 定时器 / 监听泄漏
+  runDispose();
+
   const ctx = { path, query, search, params: found?.params || {}, meta: found?.route.meta || {} };
   current = ctx;
   emit('route:start', ctx);
 
   try {
-    await view(ctx);
+    const dispose = await view(ctx);
+    if (typeof dispose === 'function') disposeCurrent = dispose;
   } catch (err) {
     console.error('[router] 渲染失败', err);
     if (err.status === 401) {

@@ -67,6 +67,11 @@ export function resolveMuteTarget(input) {
   return `n:${chat.sanitizeNickname(raw, '')}`;
 }
 
+/** 供 routes 层调用：消息落库后广播房间列表（含未读数）给所有连接 */
+export function broadcastRooms() {
+  return bridge.broadcastRooms();
+}
+
 /**
  * 跨连接共享的滑动窗口限流。
  * 之前限流状态挂在 conn 上，重连即清零，形同虚设；这里按 actor 存到服务端。
@@ -179,7 +184,7 @@ export function setupChat(server) {
     }
   };
 
-  const roomListFor = (conn) => chat.listRoomsWithUnread(liveCounts(), conn.data.user?.id || null);
+  const roomListFor = (conn) => chat.listRoomsWithUnread(liveCounts(), conn.data?.actor || null);
 
   /** 广播房间列表：在线人数与未读数对每个用户不同 */
   const broadcastRooms = () => {
@@ -314,7 +319,7 @@ export function setupChat(server) {
         messages: history,
         unread: Object.fromEntries(
           chat
-            .listRoomsWithUnread(liveCounts(), user?.id || null)
+            .listRoomsWithUnread(liveCounts(), conn.data?.actor || null)
             .filter((r) => r.unread > 0)
             .map((r) => [r.slug, r.unread]),
         ),
@@ -450,10 +455,10 @@ export function setupChat(server) {
 
           /* 标记已读 */
           case 'read': {
-            if (!user) return;
+            // 已读位点按 actor 记录，游客同样可以标已读
             const target = String(inMsg.room || conn.data.room);
             if (!chat.roomExists(target)) return;
-            chat.markRead(user.id, target, inMsg.at || new Date(now).toISOString());
+            chat.markRead(conn.data.actor, target, inMsg.at || new Date(now).toISOString());
             send(conn, { type: 'read', room: target, unread: 0 });
             broadcastRooms();
             return;
@@ -535,11 +540,9 @@ export function setupChat(server) {
             });
             // clientId 回传，前端用它把乐观消息转正，避免重复
             broadcastMessage(row, target, { clientId: inMsg.clientId || null });
-            if (user) {
-              points.earn(user.id, 'chat_message');
-              // 发言者自己自动已读
-              chat.markRead(user.id, target, row.created_at);
-            }
+            if (user) points.earn(user.id, 'chat_message');
+            // 发言者自己自动已读（游客同样适用，否则自己发的消息会算成未读）
+            chat.markRead(conn.data.actor, target, row.created_at);
             broadcastRooms();
             return;
           }
@@ -665,6 +668,7 @@ export function setupChat(server) {
       return n;
     },
     broadcastMessage: (row, room = 'lobby', extra = {}) => broadcastMessage(row, room, extra),
+    broadcastRooms: () => broadcastRooms(),
     limit: (actor) => limiter.take(actor),
     muteState: () => pushMuteState(clients),
   };

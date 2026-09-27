@@ -282,6 +282,32 @@ tbody tr:hover { background: var(--surface-2); }
 .prose hr { margin: 2em 0; }
 .prose a { text-decoration: underline; text-underline-offset: 3px; }
 
+/* @提及：markdown.js 会输出 .mention */
+.prose .mention, .mention {
+  color: var(--brand-text); background: color-mix(in srgb, var(--brand) 12%, transparent);
+  padding: 1px 6px; border-radius: 999px; font-size: 0.92em; font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 任务列表：markdown.js 会输出 .task-list > .task */
+.prose .task-list { list-style: none; padding-left: 0.2em; }
+.prose .task-list .task { display: flex; align-items: flex-start; gap: 9px; }
+.prose .task-list .task input[type="checkbox"] {
+  flex: none; margin-top: 0.42em; width: 15px; height: 15px; accent-color: var(--brand);
+  cursor: default;
+}
+.prose .task-list .task input[type="checkbox"]:checked + span { color: var(--text-muted); text-decoration: line-through; }
+
+/* 代码块语言标签：markdown.js 会输出 pre[data-lang] */
+.prose pre[data-lang] { position: relative; padding-top: calc(var(--sp-4) + 18px); }
+.prose pre[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute; top: 0; right: 0;
+  padding: 2px 9px; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--code-text); opacity: 0.55; border-left: 1px solid currentColor; border-bottom: 1px solid currentColor;
+  border-bottom-left-radius: 6px; pointer-events: none;
+}
+
 .comment { display: flex; gap: var(--sp-3); padding: var(--sp-4) 0; border-bottom: 1px solid var(--border); }
 .comment:last-child { border-bottom: none; }
 .comment .body { flex: 1; min-width: 0; }

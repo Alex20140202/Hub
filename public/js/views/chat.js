@@ -233,6 +233,7 @@ export default async function chatView(host, ctx = {}) {
     state.unread = 0;
     state.replyTo = null;
     state.editing = null;
+    composer.value = loadDraft(state.room);
     renderReplyBar();
     renderAll();
     history.replaceState(null, '', `#/chat?room=${encodeURIComponent(state.room)}`);
@@ -712,31 +713,51 @@ export default async function chatView(host, ctx = {}) {
     if (!silent) toast.info(`${room} 有新消息`);
   }
 
-  /** 后台标签页时用标题闪烁 + 可选提示音提醒 */
+  /** 后台标签页时用标题闪烁提醒，回到前台自动复原 */
   function maybeNotify(m) {
     if (m.isMe || document.visibilityState === 'visible') return;
-    if (!m.nickname.includes('Hub')) {
-      // 防打扰：同一人 10 秒内只提醒一次
-      const now = Date.now();
-      if (now - (notifyLast || 0) < 10_000) return;
-      notifyLast = now;
-      baseTitle = document.title;
-      let flip = false;
-      const t = setInterval(() => {
-        flip = !flip;
-        document.title = flip ? `(新消息) ${baseTitle}` : baseTitle;
-      }, 1200);
-      addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          clearInterval(t);
-          document.title = baseTitle;
-          document.removeEventListener('visibilitychange', fn);
-        }
-      }, { once: true });
-    }
+    // 防打扰：10 秒内只提醒一次
+    const now = Date.now();
+    if (now - (notifyLast || 0) < 10_000) return;
+    notifyLast = now;
+    startTitleFlash(`新消息 · ${m.nickname}`);
   }
+
   let notifyLast = 0;
   let baseTitle = document.title;
+  let flashTimer = null;
+
+  /** 标题闪烁；回到前台立刻停掉并复原标题 */
+  function startTitleFlash(prefix) {
+    if (flashTimer) return;
+    baseTitle = document.title;
+    let flip = false;
+    flashTimer = setInterval(() => {
+      flip = !flip;
+      document.title = flip ? `(${prefix}) ${baseTitle}` : baseTitle;
+    }, 1200);
+    // 注意：不能加 { once }，否则「切到后台」那次就会把监听消费掉，
+    // 回到前台时反而不会复原标题。
+    addEventListener('visibilitychange', onTitleVisible, { once: true });
+  }
+
+  function onTitleVisible() {
+    if (document.visibilityState !== 'visible') {
+      // 又切走了，重新挂上监听
+      addEventListener('visibilitychange', onTitleVisible, { once: true });
+      return;
+    }
+    stopTitleFlash();
+  }
+
+  function stopTitleFlash() {
+    if (flashTimer) {
+      clearInterval(flashTimer);
+      flashTimer = null;
+    }
+    if (baseTitle) document.title = baseTitle;
+    removeEventListener('visibilitychange', onTitleVisible);
+  }
 
   function systemLine(text) {
     log.querySelector('.empty')?.remove();
@@ -769,7 +790,7 @@ export default async function chatView(host, ctx = {}) {
   }
 
   function markRead() {
-    if (!store.user) return;
+    // 已读位点按 actor 记录，游客也能标已读
     const last = state.messages.at(-1)?.createdAt;
     if (last) client.markRead(state.room, last);
   }
@@ -1106,9 +1127,10 @@ export default async function chatView(host, ctx = {}) {
   }
 
   // 未读房间角标：页面重新可见时同步
-  document.addEventListener('visibilitychange', () => {
+  const onVisible = () => {
     if (document.visibilityState === 'visible' && state.atBottom) markRead();
-  });
+  };
+  document.addEventListener('visibilitychange', onVisible);
 
   // 恢复草稿
   composer.value = loadDraft(state.room);
@@ -1122,6 +1144,16 @@ export default async function chatView(host, ctx = {}) {
   const onUnload = () => client.close();
   window.addEventListener('pagehide', onUnload, { once: true });
 
+  // SPA 路由切换时由 router 调用：断开连接、清定时器、摘全局监听
+  return function teardown() {
+    client.close();
+    if (activeClient === client) activeClient = null;
+    document.removeEventListener('visibilitychange', onVisible);
+    window.removeEventListener('pagehide', onUnload);
+    stopTitleFlash();
+    clearTimeout(searchTimer);
+    log.querySelector('.chat-emoji-pop')?.remove();
+  };
 }
 
 /** CSS.escape 的兜底实现（属性选择器里 id 可能以数字开头） */

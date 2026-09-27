@@ -576,6 +576,43 @@ try {
     const rooms = await api('GET', '/api/chat/rooms');
     check('房间列表可读', rooms.status === 200 && rooms.json?.items?.length >= 4, rooms.json?.items?.map((r) => r.slug).join(','));
 
+    // 游客未读：已读位点按 actor 记录，游客也必须有未读数
+    const G = 'smoke_guest01';
+    const O = 'smoke_other01';
+    const unreadOf = async (gid) => {
+      const r = await api('GET', `/api/chat/rooms?guestId=${gid}`);
+      return r.json?.items?.find((x) => x.slug === 'lobby')?.unread ?? -1;
+    };
+    const before = await unreadOf(G);
+    await api('POST', '/api/chat/messages', { body: { room: 'lobby', body: '他人消息', nickname: '乙', guestId: O } });
+    const afterOther = await unreadOf(G);
+    eq('他人发言增加游客未读', afterOther, before + 1);
+
+    // 自己发言视为已读该房间（与 WebSocket 路径一致）：既不把这条算作未读，
+    // 也会把之前积压的未读清零。
+    await api('POST', '/api/chat/messages', { body: { room: 'lobby', body: '自己消息', nickname: '甲', guestId: G } });
+    eq('自己发言后房间视为已读', await unreadOf(G), 0);
+
+    const anon = await api('GET', '/api/chat/rooms');
+    eq('无 guestId 时未读为 0', anon.json?.items?.find((x) => x.slug === 'lobby')?.unread, 0);
+
+    await api('POST', '/api/chat/read', { body: { room: 'lobby', guestId: G } });
+    eq('游客可标记已读', await unreadOf(G), 0);
+    // 另一位游客的未读不受影响
+    eq('已读位点按游客隔离', (await unreadOf(O)) > 0, true);
+
+    // 各房间的已读位点互相独立：只标 dev 已读，lobby 的未读不能被清掉
+    const unreadRoom = async (gid, room) => {
+      const r = await api('GET', `/api/chat/rooms?guestId=${gid}`);
+      return r.json?.items?.find((x) => x.slug === room)?.unread ?? -1;
+    };
+    await api('POST', '/api/chat/messages', { body: { room: 'lobby', body: '再一条', nickname: '乙', guestId: O } });
+    const lobbyBefore = await unreadRoom(G, 'lobby');
+    await api('POST', '/api/chat/read', { body: { room: 'dev', guestId: G } });
+    eq('标记 dev 已读不影响 lobby', await unreadRoom(G, 'lobby'), lobbyBefore);
+    await api('POST', '/api/chat/read', { body: { room: 'lobby', guestId: G } });
+    eq('标记 lobby 已读后清零', await unreadRoom(G, 'lobby'), 0);
+
     const rest = await api('POST', '/api/chat/messages', { token: state.userToken, body: { body: 'REST 冒烟消息' } });
     eq('REST 发消息', rest.status, 201);
     check('REST 发消息带 isMe', rest.json?.message?.isMe === true, String(rest.json?.message?.isMe));

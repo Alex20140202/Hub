@@ -128,9 +128,25 @@ router.get('/users/:username', async (ctx) => {
 
 /* ================= 聊天室 REST ================= */
 
-/** 房间列表（含未读数），游客 unread 恒为 0 */
+/**
+ * 从请求里解析出稳定 actor：登录用户用 u:<id>，
+ * 游客用 query/body 里的 guestId（g:<gid>），与 WebSocket 同一套规则。
+ * 这样游客的未读数、已读位点也能跨设备保留。
+ */
+function actorOf(ctx) {
+  if (ctx.user) return `u:${ctx.user.id}`;
+  const gid = v.str(ctx.query.guestId, '访客标识', { required: false, max: 40 })
+    || v.str(ctx.body?.guestId, '访客标识', { required: false, max: 40 })
+    || '';
+  // guestId 非法/缺失时返回 null：actorKey 会退化成 'n:'，
+  // 那会让所有匿名请求共用同一份已读位点。
+  const normalized = chat.normalizeGuestId(gid);
+  return normalized ? `g:${normalized}` : null;
+}
+
+/** 房间列表（含未读数） */
 router.get('/chat/rooms', async (ctx) => {
-  ctx.ok({ items: chat.listRoomsWithUnread(chat.roomCounts(), ctx.user?.id || null) });
+  ctx.ok({ items: chat.listRoomsWithUnread(chat.roomCounts(), actorOf(ctx)) });
 });
 
 /** 房间详情 */
@@ -196,27 +212,25 @@ router.post('/chat/messages', async (ctx) => {
     replyTo: v.str(ctx.body.replyTo, '引用', { required: false, max: 40 }) || null,
     actor,
   });
-  if (ctx.user) {
-    points.earn(ctx.user.id, 'chat_message');
-    chat.markRead(ctx.user.id, room, row.created_at);
-  }
+  if (ctx.user) points.earn(ctx.user.id, 'chat_message');
+  // 发言者自动已读（游客同样适用，否则自己发的消息会算成未读）
+  chat.markRead(actor, room, row.created_at);
   chatGateway.pushMessage(row, room);
+  chatGateway.broadcastRooms();
   ctx.created({ message: messages.shapeMessage(row, { id: ctx.user?.id || null, role: ctx.user?.role || null, actor }) });
 });
 
 /** 未读数 */
 router.get('/chat/unread', async (ctx) => {
-  if (!ctx.user) throw HttpError.unauthorized();
-  const items = chat.listRoomsWithUnread(chat.roomCounts(), ctx.user.id);
+  const items = chat.listRoomsWithUnread(chat.roomCounts(), actorOf(ctx));
   ctx.ok({ items: items.map((r) => ({ room: r.slug, unread: r.unread })), total: items.reduce((n, r) => n + r.unread, 0) });
 });
 
 /** 标记已读 */
 router.post('/chat/read', async (ctx) => {
-  if (!ctx.user) throw HttpError.unauthorized();
   const room = v.str(ctx.body.room, '房间', { max: 20, required: false }) || chat.SYSTEM_ROOM;
   if (!chat.roomExists(room)) throw HttpError.notFound('房间不存在');
-  chat.markRead(ctx.user.id, room);
+  chat.markRead(actorOf(ctx), room, v.str(ctx.body.at, '时间', { required: false, max: 40 }) || undefined);
   ctx.ok({ room, unread: 0 });
 });
 

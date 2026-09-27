@@ -342,6 +342,23 @@ const MIGRATIONS = [
         VALUES ('room-dev', 'dev', '开发交流', '一起把 Hub 做得更好', 'public', 40, NULL, datetime('now'));
     `,
   },
+  {
+    name: '006_chat_reads_actor',
+    sql: `
+      -- chat_reads 从 user_id 改为 actor，这样游客（g:<guestId>）也有未读数。
+      -- 旧库保留并迁移已登录用户的位点。
+      CREATE TABLE IF NOT EXISTS chat_reads_actor (
+        actor      TEXT NOT NULL,
+        room       TEXT NOT NULL,
+        last_read  TEXT NOT NULL,
+        PRIMARY KEY (actor, room)
+      );
+      INSERT OR IGNORE INTO chat_reads_actor (actor, room, last_read)
+        SELECT 'u:' || user_id, room, last_read FROM chat_reads;
+      DROP TABLE IF EXISTS chat_reads;
+      ALTER TABLE chat_reads_actor RENAME TO chat_reads;
+    `,
+  },
 ];
 
 function currentVersion() {
