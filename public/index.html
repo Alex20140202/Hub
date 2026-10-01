@@ -15,16 +15,8 @@
   <link rel="stylesheet" href="/css/points.css" />
   <link rel="stylesheet" href="/css/chat.css" />
 
-  <script>
-    // 提前应用主题，避免闪烁
-    (function () {
-      try {
-        var t = localStorage.getItem('hub.theme') || 'system';
-        var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-      } catch (e) {}
-    })();
-  </script>
+  <!-- 同步执行以避免主题闪烁；放在外部文件里，好让 CSP 收紧 script-src -->
+  <script src="/js/theme-boot.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#main">跳到主要内容</a>

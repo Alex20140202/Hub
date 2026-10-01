@@ -1028,6 +1028,35 @@ try {
     const stillSpa = await fetch(`${BASE}/dashboard`, { redirect: 'manual' });
     check('未知无扩展名路径仍回退 SPA', stillSpa.status === 200, `status=${stillSpa.status}`);
 
+    /* 安全响应头 */
+    const h = await fetch(`${BASE}/`, { redirect: 'manual' });
+    const csp = String(h.headers.get('content-security-policy') || '');
+    check('存在 Content-Security-Policy', !!csp);
+    check("CSP script-src 收紧为 'self'（不含 unsafe-inline/eval）",
+      /script-src 'self'(;|\s*$)/.test(csp) && !/script-src[^;]*unsafe-inline/.test(csp) && !/script-src[^;]*unsafe-eval/.test(csp),
+      csp.slice(0, 90));
+    check('CSP 禁止 object-src 与 base-uri 注入', /object-src 'none'/.test(csp) && /base-uri 'self'/.test(csp));
+    check('CSP 限制 frame-ancestors', /frame-ancestors 'self'/.test(csp));
+    check('存在 Permissions-Policy 并禁用摄像头/麦克风/定位',
+      /camera=\(\)/.test(String(h.headers.get('permissions-policy') || ''))
+      && /microphone=\(\)/.test(String(h.headers.get('permissions-policy') || ''))
+      && /geolocation=\(\)/.test(String(h.headers.get('permissions-policy') || '')));
+    eq('X-Content-Type-Options 为 nosniff', h.headers.get('x-content-type-options'), 'nosniff');
+    eq('X-Frame-Options 为 SAMEORIGIN', h.headers.get('x-frame-options'), 'SAMEORIGIN');
+    check('Referrer-Policy 已设置', !!h.headers.get('referrer-policy'));
+    // HSTS 只在 HTTPS 下有意义，明文 HTTP 下浏览器会忽略，不应无条件下发
+    eq('明文 HTTP 下不下发 HSTS', h.headers.get('strict-transport-security'), null);
+    const h2 = await fetch(`${BASE}/`, { redirect: 'manual', headers: { 'x-forwarded-proto': 'https' } });
+    check('X-Forwarded-Proto: https 时下发 HSTS', !!h2.headers.get('strict-transport-security'),
+      String(h2.headers.get('strict-transport-security') || ''));
+
+    // 首页不应再有内联脚本（否则 CSP script-src 'self' 会把它拦掉）
+    const homeHtml = await (await fetch(`${BASE}/`, { redirect: 'manual' })).text();
+    const inlineScript = /<script(?![^>]*\bsrc=)[^>]*>\s*[^<\s]/.test(homeHtml);
+    check('首页无内联脚本（CSP 可收紧的前提）', !inlineScript);
+    const boot = await fetch(`${BASE}/js/theme-boot.js`, { redirect: 'manual' });
+    check('防闪烁脚本已外置且可访问', boot.status === 200 && /hub\.theme/.test(await boot.text()));
+
     const headers = await api('GET', '/');
     check('安全响应头存在', !!headers.headers.get('x-content-type-options') && !!headers.headers.get('x-frame-options'));
   }

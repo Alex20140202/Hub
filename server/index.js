@@ -10,7 +10,7 @@ import { migrate } from './db.js';
 import { seedIfEmpty } from './models/seed.js';
 import { Router, createContext, attachUser, readBody } from './http/router.js';
 import { createStaticHandler, mimeFor } from './http/static.js';
-import { sendJson, sendHtml, SECURITY_HEADERS } from './http/respond.js';
+import { sendJson, sendHtml, SECURITY_HEADERS, hstsHeaders } from './http/respond.js';
 import { getClientIp } from './http/body.js';
 import { createRateLimiter } from './lib/rate-limit.js';
 import { setupChat } from './ws/chat.js';
@@ -131,7 +131,7 @@ const server = http.createServer(async (req, res) => {
     /* 3. 短链跳转 */
     const short = await resolveShort(url.pathname);
     if (short) {
-      res.writeHead(302, { Location: short.target, 'Cache-Control': 'no-store', ...SECURITY_HEADERS });
+      res.writeHead(302, { Location: short.target, 'Cache-Control': 'no-store', ...SECURITY_HEADERS, ...hstsHeaders(req) });
       res.end();
       return;
     }
@@ -152,6 +152,7 @@ const server = http.createServer(async (req, res) => {
         'Content-Length': html.length,
         'Cache-Control': 'no-cache',
         ...SECURITY_HEADERS,
+        ...hstsHeaders(req),
       });
       res.end(req.method === 'HEAD' ? undefined : html);
       return;

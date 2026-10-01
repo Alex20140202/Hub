@@ -3,7 +3,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { createHash } from 'node:crypto';
-import { SECURITY_HEADERS } from './respond.js';
+import { SECURITY_HEADERS, hstsHeaders } from './respond.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -99,7 +99,7 @@ export function createStaticHandler({ root, urlPrefix = '/uploads/', immutable =
     if (req.method === 'GET' || req.method === 'HEAD') {
       const accepts = String(req.headers['accept-encoding'] || '');
       const gzip = COMPRESSIBLE.test(type) && /\bgzip\b/.test(accepts) && stat.size > 1024;
-      const sendHeaders = { ...headers, ...SECURITY_HEADERS };
+      const sendHeaders = { ...headers, ...SECURITY_HEADERS, ...hstsHeaders(req) };
       if (gzip) {
         sendHeaders['Content-Encoding'] = 'gzip';
         sendHeaders.Vary = 'Accept-Encoding';
