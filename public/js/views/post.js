@@ -40,7 +40,7 @@ export default async function postView(host, ctx) {
     el('div.row.wrap', { style: { marginTop: '20px', paddingBottom: '22px', borderBottom: '1px solid var(--border)' } }, [
       avatar(post.author, 'lg'),
       el('div', {}, [
-        el('a', { href: `#/u/${post.author.username}`, style: { fontWeight: '700', color: 'var(--text)' } }, post.author.nickname || post.author.username),
+        el('a', { href: `#/u/${post.author.username}`, class: 'author-link', style: { fontWeight: '700', color: 'var(--text)' } }, post.author.nickname || post.author.username),
         el('div.small.muted', {}, `发布于 ${dateTime(post.publishedAt || post.createdAt)} · ${post.readingTime} 分钟阅读`),
       ]),
       el('span.grow'),
@@ -67,7 +67,7 @@ export default async function postView(host, ctx) {
   /* ---------- 目录 ---------- */
   const toc = buildToc(post.content);
 
-  const body = el('div.container', { style: { display: 'grid', gridTemplateColumns: toc ? 'minmax(0,1fr) 220px' : '1fr', gap: '36px', paddingBlock: '32px' } }, [
+  const body = el(`div.container${toc ? '.grid-toc' : ''}`, { style: { display: 'grid', gap: '36px', paddingBlock: '32px' } }, [
     el('div', { style: { minWidth: '0' } }, [article, commentSection(post, comments, isAuthor)]),
     toc
       ? el('aside', { style: { position: 'sticky', top: 'calc(var(--header-h) + 20px)', alignSelf: 'start' } }, [
@@ -75,7 +75,7 @@ export default async function postView(host, ctx) {
             el('div.card-title', { style: { fontSize: '0.85rem' } }, '目录'),
             el('nav.col', { style: { gap: '6px' } },
               toc.map((h) =>
-                el('a.small', {
+                el('a.small.toc-link', {
                   href: `#${h.id}`,
                   style: { paddingLeft: `${(h.level - 2) * 10}px`, color: 'var(--text-soft)' },
                   onclick: (e) => {
@@ -292,7 +292,7 @@ function renderForm(node, post, onDone) {
     );
     return;
   }
-  const input = el('textarea.textarea', { rows: 4, placeholder: '写下你的看法…（支持 Markdown）' });
+  const input = el('textarea.textarea', { rows: 4, 'aria-label': '评论内容', placeholder: '写下你的看法…（支持 Markdown）' });
   const submit = el('button.btn.btn-primary', { type: 'button' }, '发表评论');
   submit.addEventListener('click', async () => {
     const body = input.value.trim();

@@ -15,7 +15,7 @@ const GROUPS = [
 
 export default async function searchView(host, ctx) {
   const q = ctx.query.q || '';
-  const input = el('input.input', { type: 'search', value: q, placeholder: '搜索文章、笔记、书签、用户…', style: { fontSize: '1.1rem', padding: '14px 18px' } });
+  const input = el('input.input', { type: 'search', value: q, 'aria-label': '搜索关键词', placeholder: '搜索文章、笔记、书签、用户…', style: { fontSize: '1.1rem', padding: '14px 18px' } });
   const resultBox = el('div');
   const filterBox = el('div.row.wrap', { style: { gap: '6px' } });
   let filter = 'all';

@@ -3,7 +3,9 @@ import { randomId, nowIso, slugify } from '../lib/id.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
 import HttpError from '../lib/http-error.js';
 
-const COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+// 头像色板：每种颜色叠加白字或深色字后都 >=4.5:1（见 ui/components.js 的 avatarInk）
+// #6366f1→#5f62ee、#8b5cf6→#8451f0 就是为了把对比度抬过 4.5
+const COLORS = ['#5f62ee', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8451f0', '#ec4899', '#14b8a6'];
 
 const PUBLIC_FIELDS = `id, username, email, role, nickname, bio, avatar_color, website, location, theme,
   frame, skin, points, streak, storage_bonus, post_count, created_at, last_login`;
@@ -12,7 +14,7 @@ function decorate(row) {
   if (!row) return null;
   return {
     ...row,
-    avatar: row.avatar_color || '#6366f1',
+    avatar: row.avatar_color || COLORS[0],
     joinedAt: row.created_at,
     storageBonus: row.storage_bonus || 0,
   };

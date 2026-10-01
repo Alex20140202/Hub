@@ -29,22 +29,22 @@ export default async function registerView(host, ctx) {
   const form = el('form', { novalidate: true }, [
     el('div.field', {}, [
       el('label', { for: 'username' }, '用户名'),
-      el('input.input', { id: 'username', name: 'username', autocomplete: 'username', placeholder: '3-24 位，字母数字下划线', required: true }),
+      el('input.input', { id: 'username', name: 'username', autocomplete: 'username', 'aria-label': '用户名', placeholder: '3-24 位，字母数字下划线', required: true }),
       el('span.hint', {}, '将作为你的主页地址 /u/用户名'),
     ]),
     el('div.field', {}, [
       el('label', { for: 'email' }, '邮箱'),
-      el('input.input', { id: 'email', name: 'email', type: 'email', autocomplete: 'email', placeholder: 'you@example.com', required: true }),
+      el('input.input', { id: 'email', name: 'email', type: 'email', autocomplete: 'email', 'aria-label': '邮箱', placeholder: 'you@example.com', required: true }),
     ]),
     el('div.field', {}, [
       el('label', { for: 'password' }, '密码'),
-      el('input.input', { id: 'password', name: 'password', type: 'password', autocomplete: 'new-password', placeholder: '至少 6 位', required: true }),
+      el('input.input', { id: 'password', name: 'password', type: 'password', autocomplete: 'new-password', 'aria-label': '密码', placeholder: '至少 6 位', required: true }),
       strength,
       strengthText,
     ]),
     el('div.field', {}, [
       el('label', { for: 'confirm' }, '确认密码'),
-      el('input.input', { id: 'confirm', name: 'confirm', type: 'password', autocomplete: 'new-password', placeholder: '再输入一次', required: true }),
+      el('input.input', { id: 'confirm', name: 'confirm', type: 'password', autocomplete: 'new-password', 'aria-label': '确认密码', placeholder: '再输入一次', required: true }),
     ]),
     el('div.field', {}, [
       el('label.checkbox', {}, [

@@ -40,6 +40,18 @@ export function mimeFor(file) {
 
 const COMPRESSIBLE = /^(text\/|application\/(json|javascript|wasm|xml)|image\/svg)/;
 
+/**
+ * 永不外传的路径。
+ * public/ 里出现 .DS_Store、.env、.git* 这类文件通常是误提交或工具生成的，
+ * 一旦被静态服务命中就等于把仓库内部信息挂到公网上，直接拒掉。
+ * 注意 public/ 根目录下的 .well-known 是合法目录，不在此列。
+ */
+function isDenied(rel) {
+  return rel
+    .split('/')
+    .some((seg) => seg.startsWith('.') && seg !== '.well-known' && seg !== '..');
+}
+
 export function createStaticHandler({ root, urlPrefix = '/uploads/', immutable = true } = {}) {
   const base = path.resolve(root);
 
@@ -47,6 +59,8 @@ export function createStaticHandler({ root, urlPrefix = '/uploads/', immutable =
     let rel = decodeURIComponent(urlPath);
     if (rel.startsWith(urlPrefix)) rel = rel.slice(urlPrefix.length);
     else rel = rel.replace(/^\/+/, '');
+
+    if (isDenied(rel)) return false;
 
     const target = path.resolve(base, rel);
     // 目录穿越防护

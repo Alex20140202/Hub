@@ -15,12 +15,12 @@ export default async function loginView(host, ctx) {
   const form = el('form', { novalidate: true }, [
     el('div.field', {}, [
       el('label', { for: 'login' }, '账号 / 邮箱'),
-      el('input.input', { id: 'login', name: 'login', autocomplete: 'username', placeholder: 'admin 或 admin@hub.dev', required: true }),
+      el('input.input', { id: 'login', name: 'login', autocomplete: 'username', 'aria-label': '用户名或邮箱', placeholder: 'admin 或 admin@hub.dev', required: true }),
     ]),
     el('div.field', {}, [
       el('label', { for: 'password' }, '密码'),
       el('div.input-group', {}, [
-        el('input.input', { id: 'password', name: 'password', type: 'password', autocomplete: 'current-password', placeholder: '请输入密码', required: true }),
+        el('input.input', { id: 'password', name: 'password', type: 'password', autocomplete: 'current-password', 'aria-label': '密码', placeholder: '请输入密码', required: true }),
         el('button.icon-btn', { type: 'button', id: 'toggle-pw', 'aria-label': '显示密码' }, '👁'),
       ]),
     ]),

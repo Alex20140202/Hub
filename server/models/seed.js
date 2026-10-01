@@ -3,7 +3,9 @@ import { randomId, slugify, nowIso } from '../lib/id.js';
 import { hashPassword } from '../lib/password.js';
 import config from '../config.js';
 
-const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+// 头像色板：每种颜色叠加白字或深色字后都 >=4.5:1（见 ui/components.js 的 avatarInk）
+// #6366f1→#5f62ee、#8b5cf6→#8451f0 就是为了把对比度抬过 4.5
+const AVATAR_COLORS = ['#5f62ee', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8451f0', '#ec4899', '#14b8a6'];
 
 export function seedIfEmpty() {
   const created = {};

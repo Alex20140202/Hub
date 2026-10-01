@@ -35,7 +35,7 @@ export default async function notesView(host, ctx) {
     grid,
   );
 
-  const search = el('input.input', { type: 'search', placeholder: '搜索标题或内容…', style: { maxWidth: '280px' } });
+  const search = el('input.input', { type: 'search', 'aria-label': '搜索笔记', placeholder: '搜索标题或内容…', style: { maxWidth: '280px' } });
   search.addEventListener('input', debounce(() => {
     state.q = search.value.trim();
     load();
@@ -76,9 +76,15 @@ export default async function notesView(host, ctx) {
       note.tags.length ? el('div.row.wrap', { style: { gap: '4px', marginTop: '8px' } }, note.tags.map((t) => el('span.badge', {}, `#${t}`))) : null,
       el('div.foot', {}, [
         el('span', {}, timeAgo(note.updatedAt)),
-        el('span.row', { style: { gap: '4px' } }, [
-          el('button', { type: 'button', title: '置顶', onclick: (e) => { e.stopPropagation(); pin(note); } }, note.pinned ? '📌' : '📍'),
-          el('button', { type: 'button', title: '更多', onclick: (e) => { e.stopPropagation(); openEditor(note); } }, '⋯'),
+        el('span.row.note-actions', {}, [
+          el('button.icon-btn', {
+            type: 'button', title: '置顶', 'aria-label': note.pinned ? '取消置顶' : '置顶',
+            onclick: (e) => { e.stopPropagation(); pin(note); },
+          }, note.pinned ? '📌' : '📍'),
+          el('button.icon-btn', {
+            type: 'button', title: '更多', 'aria-label': '更多操作',
+            onclick: (e) => { e.stopPropagation(); openEditor(note); },
+          }, '⋯'),
         ]),
       ]),
     ]);
@@ -119,11 +125,11 @@ export default async function notesView(host, ctx) {
     const body = el('form', { onsubmit: (e) => e.preventDefault() }, [
       el('div.field', {}, [
         el('label', {}, '标题'),
-        (titleInput = el('input.input', { placeholder: '这条笔记讲什么？', value: note?.title || '' })),
+        (titleInput = el('input.input', { 'aria-label': '笔记标题', placeholder: '这条笔记讲什么？', value: note?.title || '' })),
       ]),
       el('div.field', {}, [
         el('label', {}, '内容'),
-        (contentInput = el('textarea.textarea', { rows: 12, placeholder: '支持纯文本，Enter 换行' })),
+        (contentInput = el('textarea.textarea', { rows: 12, 'aria-label': '笔记内容', placeholder: '支持纯文本，Enter 换行' })),
       ]),
       el('div.field', {}, [el('label', {}, '颜色'), colorRow]),
       el('div.field', {}, [el('label', {}, '标签'), (tagsWidget = tagInput(note?.tags || []))]),

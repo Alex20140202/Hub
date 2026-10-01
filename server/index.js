@@ -45,6 +45,30 @@ const globalLimiter = createRateLimiter({ windowMs: 60_000, max: 1200 });
 const serveUploads = createStaticHandler({ root: config.paths.uploads, urlPrefix: '/uploads/' });
 const servePublic = createStaticHandler({ root: config.paths.public, urlPrefix: '/', immutable: false });
 
+/**
+ * 判断一个路径是否「像应用内页面路由」，只有这类才回退到 index.html。
+ *
+ * 应用用的是 Hash 路由（/#/chat），所以服务端永远看不到 /chat 这种路径；
+ * 真正走到的页面路径只有根路径和 404 兜底。绝大多数请求其实都是静态资源，
+ * 剩下的才可能是页面。因此这里用「没有扩展名、且不含隐藏段」作为放行条件：
+ *   /              → 是页面
+ *   /blog          → 是页面
+ *   /.env          → 隐藏文件，404
+ *   /config.js     → 带扩展名，404
+ *   /backup.zip    → 带扩展名，404
+ *   /.git/HEAD     → 隐藏段，404
+ */
+function isAppRoute(pathname) {
+  const clean = pathname.replace(/\/+$/, '') || '/';
+  if (clean === '/') return true;
+  return !clean.split('/').some((seg) => {
+    if (!seg) return false;
+    if (seg.startsWith('.')) return true;
+    // 最后一段带扩展名 => 静态资源请求，未命中就应当 404
+    return /^[^/]+\.[A-Za-z0-9]{1,8}$/.test(seg);
+  });
+}
+
 /* ---------- 错误页 ---------- */
 function errorPage(status, message) {
   return `<!doctype html>
@@ -115,6 +139,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' || req.method === 'HEAD') {
       const served = await servePublic(req, res, url.pathname);
       if (served) return;
+      // 只对「像是页面路由」的路径回退到 index.html。
+      // 带扩展名（.env/.git/HEAD/backup.zip/config.js…）或隐藏文件一律 404：
+      // 这些路径本来就不该存在，回退成 200 + HTML 既是错误语义，
+      // 也会让扫描器把「首页 HTML」误判成「敏感文件已泄露」。
+      if (!isAppRoute(url.pathname)) throw HttpError.notFound();
       const index = path.join(config.paths.public, 'index.html');
       const html = await fs.promises.readFile(index);
       res.writeHead(200, {

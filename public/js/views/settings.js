@@ -2,7 +2,7 @@ import { el, clear } from '../lib/dom.js';
 import { store, applyTheme, applySkin, SKINS } from '../lib/store.js';
 import { AuthAPI, api, ShopAPI } from '../lib/api.js';
 import { dateTime, timeAgo } from '../lib/format.js';
-import { avatar, badge, tabs, input } from '../ui/components.js';
+import { avatar, avatarInk, badge, tabs, input, field } from '../ui/components.js';
 import { toast } from '../ui/toast.js';
 import { go } from '../lib/router.js';
 
@@ -12,7 +12,9 @@ const THEMES = [
   { value: 'system', label: '🖥 跟随系统' },
 ];
 
-const AVATAR_COLORS = ['#6366f1', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+// 头像底色：都要保证叠加白色或深色字母后 >=4.5:1
+// #6366f1→#5f62ee、#8b5cf6→#8451f0 是为了把 4.47/4.34 抬过 4.5
+const AVATAR_COLORS = ['#5f62ee', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8451f0', '#ec4899', '#14b8a6'];
 
 export default async function settingsView(host) {
   const user = store.user;
@@ -84,7 +86,7 @@ export default async function settingsView(host) {
   /* ---------------- 个人资料 ---------------- */
   function renderProfile() {
     const nickname = input({ value: user.nickname || '', placeholder: '昵称', maxlength: '24' });
-    const bio = el('textarea.textarea', { rows: 4, placeholder: '介绍一下自己…', maxlength: '300' });
+    const bio = el('textarea.textarea', { rows: 4, 'aria-label': '个人简介', placeholder: '介绍一下自己…', maxlength: '300' });
     bio.value = user.bio || '';
     const website = input({ value: user.website || '', placeholder: 'https://your-site.com' });
     const location = input({ value: user.location || '', placeholder: '所在城市' });
@@ -115,7 +117,7 @@ export default async function settingsView(host) {
     drawColors();
 
     const preview = el('div.row', { style: { marginBottom: '16px' } }, [
-      el('div.avatar.lg', { style: { background: pickedColor } }, (user.nickname || user.username).slice(0, 2)),
+      el('div.avatar.lg', { style: { background: pickedColor, color: avatarInk(pickedColor) } }, (user.nickname || user.username).slice(0, 2)),
       el('div', {}, [
         el('strong', {}, user.nickname || user.username),
         el('div.small.muted', {}, '头像颜色预览'),
@@ -149,20 +151,22 @@ export default async function settingsView(host) {
       }
     });
 
+    // 用 field() 而不是手写 div.field + label：
+    // field() 会给控件补 id 并写进 <label for>，读屏和点击标签才有效
     panel.append(
       el('div.card-title', {}, '个人资料'),
       preview,
       el('div.field', {}, [el('label', {}, '头像颜色'), colorRow]),
       el('div.grid.grid-2', { style: { gap: '12px' } }, [
-        el('div.field', {}, [el('label', {}, '昵称'), nickname]),
-        el('div.field', {}, [el('label', {}, '用户名'), username]),
+        field('昵称', nickname),
+        field('用户名', username),
       ]),
-      el('div.field', {}, [el('label', {}, '个人简介'), bio]),
+      field('个人简介', bio),
       el('div.grid.grid-2', { style: { gap: '12px' } }, [
-        el('div.field', {}, [el('label', {}, '邮箱'), email]),
-        el('div.field', {}, [el('label', {}, '所在地'), location]),
+        field('邮箱', email),
+        field('所在地', location),
       ]),
-      el('div.field', {}, [el('label', {}, '个人网站'), website]),
+      field('个人网站', website),
       el('div.row', {}, [saveBtn]),
     );
   }

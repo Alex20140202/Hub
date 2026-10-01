@@ -80,8 +80,8 @@
 .log-main > div:first-child { font-weight: 600; }
 .log-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
 .log-right strong { font-size: var(--step-0); font-weight: 800; }
-.log-right strong.up { color: var(--success); }
-.log-right strong.down { color: var(--danger); }
+.log-right strong.up { color: var(--success-text); }
+.log-right strong.down { color: var(--danger-text); }
 
 /* 排行榜 */
 .rank-list { list-style: none; display: flex; flex-direction: column; gap: 2px; }
@@ -95,9 +95,11 @@
   width: 22px; text-align: center; font-variant-numeric: tabular-nums;
   font-weight: 800; font-size: 0.82rem; color: var(--text-muted);
 }
-.rank-list li:nth-child(1) .rank-no { color: #d97706; }
-.rank-list li:nth-child(2) .rank-no { color: #64748b; }
-.rank-list li:nth-child(3) .rank-no { color: #b45309; }
+/* 奖牌色：原来写死，亮色下 #64748b 只有 3.69:1，暗色下更暗，读不清。
+   改成用语义令牌，亮/暗两套各自达标。 */
+.rank-list li:nth-child(1) .rank-no { color: var(--warning-text); }
+.rank-list li:nth-child(2) .rank-no { color: var(--text-soft); }
+.rank-list li:nth-child(3) .rank-no { color: var(--warning-text); opacity: 0.85; }
 .rank-name {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
   font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -106,7 +108,7 @@
 
 /* 商城 */
 .shop-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
   gap: var(--sp-3); margin-bottom: var(--sp-5);
 }
 .shop-item {
@@ -147,6 +149,6 @@
 [data-theme="dark"] .badge-blue { color: #38bdf8; }
 
 @media (max-width: 860px) {
-  .points-hero { grid-template-columns: 1fr; }
+  .points-hero { grid-template-columns: minmax(0, 1fr); }
   .points-balance { align-items: flex-start; }
 }

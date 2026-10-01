@@ -38,7 +38,7 @@ export default async function todosView(host, ctx) {
   );
 
   const filterBox = host.querySelector('#todo-filters');
-  const searchInput = el('input.input', { type: 'search', placeholder: '搜索待办…' });
+  const searchInput = el('input.input', { type: 'search', 'aria-label': '搜索待办', placeholder: '搜索待办…' });
   searchInput.addEventListener('input', debounce(() => {
     state.q = searchInput.value.trim();
     load();
@@ -224,12 +224,12 @@ export default async function todosView(host, ctx) {
   }
 
   function openEditor(todo = null) {
-    const titleInput = el('input.input', { placeholder: '要做什么？', value: todo?.title || '' });
-    const detailInput = el('textarea.textarea', { rows: 3, placeholder: '补充说明（可选）' });
+    const titleInput = el('input.input', { 'aria-label': '待办标题', placeholder: '要做什么？', value: todo?.title || '' });
+    const detailInput = el('textarea.textarea', { rows: 3, 'aria-label': '待办说明', placeholder: '补充说明（可选）' });
     detailInput.value = todo?.detail || '';
     const prioritySelect = select(PRIORITIES.map((p) => ({ value: p.value, label: p.label })));
     prioritySelect.value = todo?.priority || 2;
-    const projectInput = el('input.input', { placeholder: '例如：工作 / 生活', value: todo?.project || '', list: 'project-list' });
+    const projectInput = el('input.input', { 'aria-label': '所属项目', placeholder: '例如：工作 / 生活', value: todo?.project || '', list: 'project-list' });
     const dueInput = el('input.input', { type: 'date', value: todo?.dueAt ? todo.dueAt.slice(0, 10) : '' });
 
     const datalist = el('datalist', { id: 'project-list' }, data.projects.map((p) => el('option', { value: p.project })));

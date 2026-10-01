@@ -46,18 +46,19 @@ export default async function editorView(host, ctx) {
 
   /* ---------- 控件 ---------- */
   const titleInput = el('input.input', {
-    placeholder: '文章标题…',
+    'aria-label': '文章标题', placeholder: '文章标题…',
     value: state.title,
     style: { fontSize: '1.5rem', fontWeight: '700', padding: '14px 18px' },
     maxlength: '120',
   });
   const contentArea = el('textarea.textarea', {
+    'aria-label': '正文（Markdown）',
     placeholder: '用 Markdown 开始写作…\n\n## 二级标题\n- 列表项\n> 引用\n```js\n代码块\n```',
     style: { minHeight: '440px', fontFamily: 'var(--font-mono)', fontSize: '0.9rem', lineHeight: '1.75' },
   });
   contentArea.value = state.content;
 
-  const excerptInput = el('textarea.textarea', { rows: 2, placeholder: '摘要（留空自动截取正文）', maxlength: '300' });
+  const excerptInput = el('textarea.textarea', { rows: 2, 'aria-label': '文章摘要', placeholder: '摘要（留空自动截取正文）', maxlength: '300' });
   excerptInput.value = state.excerpt;
 
   const categorySelect = select(
@@ -77,7 +78,7 @@ export default async function editorView(host, ctx) {
     },
   );
 
-  const featureToggle = el('input', { type: 'checkbox' });
+  const featureToggle = el('input', { type: 'checkbox', 'aria-label': '设为精选文章' });
   featureToggle.checked = !!state.featured;
 
   const counter = el('span.small.muted');
@@ -119,7 +120,7 @@ export default async function editorView(host, ctx) {
       ]),
       el('div.row', {}, [previewBtn, publishBtn, saveBtn]),
     ]),
-    el('div.grid', { style: { gridTemplateColumns: 'minmax(0,1fr) 300px', alignItems: 'start' } }, [
+    el('div.grid.grid-sidebar', {}, [
       el('div.col', { style: { gap: '14px' } }, [
         titleInput,
         el('div.row.wrap', { style: { gap: '8px' } }, [

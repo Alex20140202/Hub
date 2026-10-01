@@ -35,6 +35,12 @@
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
+  /* 上面三个是「鲜艳填充色」：做背景/描边没问题，
+     但直接当文字只有 2.1~3.8:1，达不到 WCAG AA 的 4.5:1。
+     下面三个是同色系加深版，专供文字使用（徽章文字、增减值、优先级标签）。 */
+  --success-text: #0d7355;
+  --warning-text: #8a5a00;
+  --danger-text: #b91c1c;
 
   --container: 1200px;
   --header-h: 62px;
@@ -56,7 +62,7 @@
   --border-strong: #cbd3e3;
   --text: #101728;
   --text-soft: #47536b;
-  --text-muted: #7c879d;
+  --text-muted: #5f6a80;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 8px 24px -10px rgba(16, 24, 40, 0.14);
   --shadow-lg: 0 2px 6px rgba(16, 24, 40, 0.05), 0 28px 64px -24px rgba(16, 24, 40, 0.26);
@@ -80,7 +86,11 @@
   --border-strong: #33415c;
   --text: #e8edf7;
   --text-soft: #a7b2c7;
-  --text-muted: #6b7793;
+  --text-muted: #8b98b8;
+  /* 暗色下反过来要提亮，才能在深色表面上够 4.5:1 */
+  --success-text: #34d399;
+  --warning-text: #fbbf24;
+  --danger-text: #f87171;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 32px -12px rgba(0, 0, 0, 0.7);
   --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 34px 76px -26px rgba(0, 0, 0, 0.8);
@@ -160,7 +170,7 @@
   --border-strong: #c9c9cf;
   --text: #15161a;
   --text-soft: #4a4d55;
-  --text-muted: #85888f;
+  --text-muted: #63666d;
 }
 [data-skin="mono"][data-theme="dark"] {
   --bg: #0a0a0b;
@@ -172,6 +182,12 @@
   --border-strong: #3a3a41;
   --brand-soft: #22222a;
   --brand-text: #b6b6c0;
+  /* 必须在这里重写文字色：[data-skin="mono"] 与 [data-theme="dark"] 特异度相同，
+     而前者写在文件更后面，所以暗色模式下会沿用亮色的 #15161a 等深色值，
+     变成「近黑底 + 近黑字」（对比度 1.09:1），整页不可读。 */
+  --text: #e8e8ea;
+  --text-soft: #a8a8b0;
+  --text-muted: #8e8e99;
 }
 
 /* ---------- 头像框（商城道具） ---------- */

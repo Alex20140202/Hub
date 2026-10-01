@@ -92,7 +92,6 @@ route('/blog/new', view(editor, { auth: true, title: '写文章' }), { auth: tru
 route('/blog/:slug/edit', view(editor, { auth: true, title: '编辑文章' }), { auth: true });
 route('/blog/:slug', view(post, { title: (c) => c.params.slug }), { public: true });
 route('/profile', view(profile, { auth: true, title: '个人中心' }), { auth: true });
-route('/points', view(points, { auth: true, title: '积分中心' }), { auth: true });
 route('/u/:username', view(userProfile, { title: '用户主页' }), { public: true });
 route('/search', view(search, { title: '搜索' }), { public: true });
 route('/admin', view(admin, { auth: true, admin: true, title: '管理后台' }), { auth: true });

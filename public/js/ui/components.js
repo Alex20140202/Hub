@@ -1,5 +1,25 @@
 import { el, initials } from '../lib/dom.js';
 
+/**
+ * 依据背景色亮度挑选前景色。
+ * 头像是「彩色底 + 字母」，而色板里既有深紫也有亮橙，
+ * 一律用白字会让亮色底上的字母几乎看不清（实测低至 2.0:1）。
+ */
+export function avatarInk(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || '').trim());
+  if (!m) return '#fff';
+  const [r, g, b] = [m[1], m[2], m[3]].map((x) => parseInt(x, 16) / 255);
+  const lin = (v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  // 取「白字 / 深色字」中对比度更高的那个。
+  // 注意深色墨水 #10141f 自身的亮度约 0.007，分母要用 L+0.05 而不是 0.05，
+  // 否则会把 #6366f1 这类色判成「深色字更好」，实际白字反而更清楚。
+  const ratio = (a, b) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  const onWhite = ratio(L, 1);
+  const onDark = ratio(L, 0.00714);
+  return onWhite >= onDark ? '#ffffff' : '#10141f';
+}
+
 /** 头像 */
 export function avatar(user, size = '') {
   const name = user?.nickname || user?.username || user?.author?.nickname || '?';
@@ -10,7 +30,7 @@ export function avatar(user, size = '') {
       el('img', { src: user.avatarUrl, alt: name, style: { borderRadius: '50%', width: '100%', height: '100%', objectFit: 'cover' } }),
     ]);
   }
-  return el(cls, { style: { background: color }, title: name }, initials(name));
+  return el(cls, { style: { background: color, color: avatarInk(color) }, title: name }, initials(name));
 }
 
 /** 带商城头像框的头像 */
@@ -120,11 +140,17 @@ export function statCard({ label, value, delta = null, icon = '', hint = '' }) {
 }
 
 /** 带标签的输入 */
+let fieldSeq = 0;
 export function field(label, control, { hint = '', required = false } = {}) {
+  // 控件没有 id 时自动补一个：否则 <label for> 指向空，
+  // 读屏软件读不到标签，点击标签也不会聚焦控件。
+  if (control.tagName !== 'LABEL' && !control.id) {
+    control.id = `field-${++fieldSeq}`;
+  }
   return el('div.field', {}, [
     control.tagName === 'LABEL'
       ? control
-      : el('label', { for: control.id || null }, [label, required ? el('span', { style: { color: 'var(--danger)' } }, ' *') : null]),
+      : el('label', { for: control.id }, [label, required ? el('span', { style: { color: 'var(--danger)' } }, ' *') : null]),
     control,
     hint ? el('span.hint', {}, hint) : null,
   ]);
@@ -166,7 +192,7 @@ export function tagInput(initial = [], { placeholder = '输入后回车添加' }
   const wrap = el('div.col', { style: { gap: '8px' } });
   const chips = el('div.row.wrap', { style: { gap: '6px' } });
   const list = [...initial];
-  const input = el('input.input', { placeholder, type: 'text' });
+  const input = el('input.input', { 'aria-label': '标签', placeholder, type: 'text' });
 
   const render = () => {
     chips.replaceChildren();

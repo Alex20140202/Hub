@@ -100,7 +100,7 @@ export default async function profileView(host) {
           el('div.card', {}, [
             el('div.row-between', {}, [
               el('div.card-title', { style: { margin: '0' } }, '🪙 我的积分'),
-              el('a.small', { href: '#/points' }, '积分中心 →'),
+              el('a.small.stat-link', { href: '#/points' }, '积分中心 →'),
             ]),
             el('div.points-balance', { style: { marginTop: '12px', alignItems: 'flex-start' } }, [
               el('span.label', {}, '可用余额'),
@@ -117,7 +117,7 @@ export default async function profileView(host) {
           el('div.card', {}, [
             el('div.card-title', {}, '🎖️ 勋章墙'),
             items.filter((i) => i.kind === 'badge' || i.kind === 'frame').length
-              ? el('div.shop-grid', { style: { gridTemplateColumns: '1fr', marginBottom: '0' } },
+              ? el('div.shop-grid', { style: { gridTemplateColumns: 'minmax(0, 1fr)', marginBottom: '0' } },
                   items.filter((i) => i.kind === 'badge' || i.kind === 'frame').map((i) => el('div.shop-item', {}, [
                     el('div.shop-icon', { class: i.kind === 'frame' ? 'amber' : 'purple' }, i.icon),
                     el('div.shop-body', {}, [

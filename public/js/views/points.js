@@ -27,7 +27,16 @@ let activeTab = 'overview';
 export default async function pointsView(host, ctx) {
   const tab = ctx?.query?.tab;
   if (tab && TABS.some((t) => t.id === tab)) activeTab = tab;
-  if (!store.user) return;
+
+  // 游客：给出明确的登录入口，而不是直接 return 渲染出空白页
+  if (!store.user) {
+    host.replaceChildren(
+      el('div.page-head', {}, [el('h1', {}, '积分中心'), el('p', {}, '签到、创作与互动都能积累积分，用来兑换真正生效的道具')]),
+      empty('登录后查看积分', '签到记录、积分流水和兑换道具都需要登录账号。',
+        el('a.btn.btn-primary', { href: '#/login' }, '去登录'), '🪙'),
+    );
+    return;
+  }
 
   host.replaceChildren(skeleton(3, { title: true }));
 

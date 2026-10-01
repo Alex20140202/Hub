@@ -851,7 +851,7 @@ export default async function adminView(host) {
           ]),
           el('div.field', {}, [
             el('label', {}, '生效值（JSON，可留空）'),
-            el('input.input', { value: item?.payload ? JSON.stringify(item.payload) : '', id: 'it-payload', placeholder: '{"value":"ocean"}' }),
+            el('input.input', { value: item?.payload ? JSON.stringify(item.payload) : '', id: 'it-payload', 'aria-label': '生效值', placeholder: '{"value":"ocean"}' }),
           ]),
         ]),
         footer: [

@@ -14,7 +14,7 @@ export default async function filesView(host, ctx) {
   const sidebar = el('div.col', { style: { gap: '16px' } });
   const pagerNode = el('div');
 
-  const fileInput = el('input', { type: 'file', multiple: true, style: { display: 'none' } });
+  const fileInput = el('input', { type: 'file', multiple: true, 'aria-label': '选择要上传的文件', style: { display: 'none' } });
 
   const dropzone = el('div.dropzone', {}, [
     el('div', { style: { fontSize: '2rem' } }, '📤'),
@@ -23,7 +23,7 @@ export default async function filesView(host, ctx) {
   ]);
 
   const listNode = el('div');
-  const searchInput = el('input.input', { type: 'search', placeholder: '搜索文件名…' });
+  const searchInput = el('input.input', { type: 'search', 'aria-label': '搜索文件名', placeholder: '搜索文件名…' });
 
   host.append(
     el('div.page-head', {}, [

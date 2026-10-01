@@ -30,7 +30,7 @@ export default async function linksView(host, ctx) {
     grid,
   );
 
-  const search = el('input.input', { type: 'search', placeholder: '搜索标题、网址或备注…' });
+  const search = el('input.input', { type: 'search', 'aria-label': '搜索书签', placeholder: '搜索标题、网址或备注…' });
   search.addEventListener('input', debounce(() => {
     state.q = search.value.trim();
     load();
@@ -118,7 +118,14 @@ export default async function linksView(host, ctx) {
     });
 
     return el('div.link-card', {}, [
-      el('a.link-icon', { href: link.url, target: '_blank', rel: 'noopener', onclick: openLink }, favicon),
+      el('a.link-icon', {
+        href: link.url,
+        target: '_blank',
+        rel: 'noopener',
+        onclick: openLink,
+        'aria-label': `打开 ${link.title || link.url}`,
+        title: link.title || link.url,
+      }, favicon),
       el('div.grow', { style: { minWidth: '0' } }, [
         el('a', { href: link.url, target: '_blank', rel: 'noopener', onclick: openLink, style: { color: 'var(--text)', fontWeight: '600' } },
           el('span.truncate', { style: { display: 'block' } }, link.title)),
@@ -162,9 +169,9 @@ export default async function linksView(host, ctx) {
   }
 
   function openEditor(link = null) {
-    const titleInput = el('input.input', { placeholder: '网站名称', value: link?.title || '' });
-    const urlInput = el('input.input', { type: 'url', placeholder: 'https://example.com', value: link?.url || '' });
-    const noteInput = el('textarea.textarea', { rows: 3, placeholder: '备注：为什么收藏它？' });
+    const titleInput = el('input.input', { 'aria-label': '网站名称', placeholder: '网站名称', value: link?.title || '' });
+    const urlInput = el('input.input', { type: 'url', 'aria-label': '网址', placeholder: 'https://example.com', value: link?.url || '' });
+    const noteInput = el('textarea.textarea', { rows: 3, 'aria-label': '备注', placeholder: '备注：为什么收藏它？' });
     noteInput.value = link?.note || '';
     const categorySelect = select(CATEGORIES, {});
     categorySelect.value = link?.category || 'general';

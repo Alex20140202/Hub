@@ -114,7 +114,7 @@
 .msg-meta { display: flex; align-items: baseline; gap: 6px; font-size: var(--step--1); color: var(--text-muted); }
 .msg-time { font-variant-numeric: tabular-nums; }
 .msg-state { color: var(--text-muted); }
-.msg-state.is-error { color: var(--danger); font-weight: 600; }
+.msg-state.is-error { color: var(--danger-text); font-weight: 600; }
 
 .msg-bubble {
   position: relative;
@@ -223,8 +223,9 @@
 }
 .chat-jump:hover { border-color: var(--brand); color: var(--brand-text); }
 .chat-jump-badge {
-  min-width: 18px; padding: 0 5px; border-radius: var(--radius-full);
-  background: var(--danger); color: #fff; font-size: 0.68rem; line-height: 17px; text-align: center;
+  /* 0.68rem ≈ 10.9px 偏小，提到 0.75rem；行高同步放大保持圆形 */
+  min-width: 20px; padding: 0 5px; border-radius: var(--radius-full);
+  background: var(--danger); color: #fff; font-size: 0.75rem; line-height: 20px; text-align: center;
 }
 
 /* ---------- 输入区 ---------- */
@@ -236,10 +237,10 @@
   background: var(--surface-2); font-size: var(--step--1);
 }
 .chat-reply-tag { flex: none; padding: 2px 8px; border-radius: var(--radius-full); background: var(--brand-soft); color: var(--brand-text); font-weight: 600; }
-.chat-reply-tag.is-edit { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning); }
+.chat-reply-tag.is-edit { background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning-text); }
 .chat-reply-text { flex: 1; min-width: 0; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-reply-x { flex: none; padding: 0 6px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; }
-.chat-reply-x:hover { color: var(--danger); }
+.chat-reply-x:hover { color: var(--danger-text); }
 
 .chat-input { display: flex; align-items: flex-end; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); }
 .nick-input { flex: none; width: 128px; border-radius: var(--radius-full); }
@@ -254,7 +255,7 @@
 .chat-composer::placeholder { color: var(--text-muted); }
 .chat-send { border-radius: var(--radius-full); }
 .chat-count { display: block; padding: 0 var(--sp-4) var(--sp-2); text-align: right; color: var(--text-muted); font-size: 0.72rem; font-variant-numeric: tabular-nums; }
-.chat-count.is-warn { color: var(--warning); }
+.chat-count.is-warn { color: var(--warning-text); }
 
 /* ---------- 补全浮层 ---------- */
 .chat-mention, .chat-commands {
@@ -345,7 +346,7 @@
 }
 
 /* ---------- 管理后台 · 聊天室 ---------- */
-.chat-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--sp-3); }
+.chat-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: var(--sp-3); }
 .chat-admin-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 .chat-admin-item {
   display: flex; flex-direction: column; gap: 5px;

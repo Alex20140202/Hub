@@ -8,8 +8,8 @@ import { modal, confirmDialog } from '../ui/modal.js';
 
 export default async function shortView(host) {
   const urlInput = el('input.input', { placeholder: 'https://example.com/very/long/path?with=query', 'aria-label': '目标链接' });
-  const codeInput = el('input.input', { placeholder: '自定义短码（可选，3-32 位）', maxlength: '32' });
-  const titleInput = el('input.input', { placeholder: '备注标题（可选）' });
+  const codeInput = el('input.input', { 'aria-label': '自定义短码', placeholder: '自定义短码（可选，3-32 位）', maxlength: '32' });
+  const titleInput = el('input.input', { 'aria-label': '备注标题', placeholder: '备注标题（可选）' });
   const resultBox = el('div');
   const listNode = el('div');
 
