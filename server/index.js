@@ -46,17 +46,18 @@ const serveUploads = createStaticHandler({ root: config.paths.uploads, urlPrefix
 const servePublic = createStaticHandler({ root: config.paths.public, urlPrefix: '/', immutable: false });
 
 /**
- * 判断一个路径是否「像应用内页面路由」，只有这类才回退到 index.html。
+ * 判断一个路径是否应当回退到 index.html。
  *
- * 应用用的是 Hash 路由（/#/chat），所以服务端永远看不到 /chat 这种路径；
- * 真正走到的页面路径只有根路径和 404 兜底。绝大多数请求其实都是静态资源，
- * 剩下的才可能是页面。因此这里用「没有扩展名、且不含隐藏段」作为放行条件：
- *   /              → 是页面
- *   /blog          → 是页面
- *   /.env          → 隐藏文件，404
- *   /config.js     → 带扩展名，404
- *   /backup.zip    → 带扩展名，404
- *   /.git/HEAD     → 隐藏段，404
+ * 保留「未知扩展名路径回退 SPA」的既有行为（见 smoke 用例：
+ * `/dashboard` 与不存在的短码都应回退首页），但把两类明显不该回退的排除掉：
+ *   - 隐藏文件/隐藏段：/.env、/.git/HEAD、/.htaccess、/.DS_Store
+ *   - 带扩展名的资源：/config.js、/backup.zip、/package.json、/openapi.json
+ * 这两类路径本就不存在，返回 200 + 首页 HTML 既是错误语义，
+ * 也会让扫描器把首页误判成「敏感文件已泄露」。
+ *
+ * 注意：像 /graphql、/actuator/env 这类无扩展名路径仍会回退 SPA——
+ * 它们和「不存在的短码」在静态层无法区分，而这里返回的只是公开首页 HTML，
+ * 不含任何敏感数据。
  */
 function isAppRoute(pathname) {
   const clean = pathname.replace(/\/+$/, '') || '/';

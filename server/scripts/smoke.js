@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import fs from 'node:fs';
+import { writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -988,6 +989,44 @@ try {
     const rootRead = await fetch(`${BASE}/package.json`, { redirect: 'manual' });
     const rootBody = await rootRead.text();
     check('仓库根目录文件不可通过静态服务读取', !rootBody.includes('"name": "hub"'), `status=${rootRead.status}`);
+
+    /* 敏感路径不应回退成 200 + 首页 HTML。
+       扫描器会把「200 + text/html」判成敏感文件已泄露，
+       虽然返回的只是公开首页，但语义上也该是 404。 */
+    const sensitive = [
+      '/.DS_Store', '/.env', '/.env.local', '/.git/HEAD', '/.git/config',
+      '/.htaccess', '/.htpasswd', '/.svn/entries', '/.hg/requires',
+      '/config.js', '/config.json', '/backup.zip', '/backup.tar.gz',
+      '/db.sql', '/dump.sql', '/openapi.json', '/swagger.json',
+      '/phpinfo.php', '/wp-config.php.bak', '/manifest.json', '/composer.lock',
+    ];
+    const leaked = [];
+    for (const p of sensitive) {
+      const r = await fetch(`${BASE}${p}`, { redirect: 'manual' });
+      const body = await r.text();
+      // 404 或 403 都算正确；返回 200（无论是不是首页）都算没拦住
+      if (r.status === 200) leaked.push(`${p}=${r.status}`);
+    }
+    eq('敏感路径一律不返回 200', leaked.join(','), '');
+
+    // 隐藏文件即使真实存在于 public/ 也必须拒绝（防误提交）
+    const planted = path.join(ROOT, 'public', '.smoke-secret');
+    writeFileSync(planted, 'SECRET_VALUE_SHOULD_NEVER_LEAK');
+    try {
+      const r = await fetch(`${BASE}/.smoke-secret`, { redirect: 'manual' });
+      const body = await r.text();
+      check('public/ 下的隐藏文件不外传', r.status !== 200 && !body.includes('SECRET_VALUE_SHOULD_NEVER_LEAK'), `status=${r.status}`);
+    } finally {
+      rmSync(planted, { force: true });
+    }
+
+    // .well-known 是合法目录，不应被隐藏段规则误伤（当前没有该文件，只断言不是 403 之外的异常）
+    const wk = await fetch(`${BASE}/.well-known/security.txt`, { redirect: 'manual' });
+    check('.well-known 不被隐藏段规则拦截成 403', wk.status !== 403, `status=${wk.status}`);
+
+    // 扩展名路径仍回退 SPA 的既有行为不能被误伤（见上面两条 SPA 用例）
+    const stillSpa = await fetch(`${BASE}/dashboard`, { redirect: 'manual' });
+    check('未知无扩展名路径仍回退 SPA', stillSpa.status === 200, `status=${stillSpa.status}`);
 
     const headers = await api('GET', '/');
     check('安全响应头存在', !!headers.headers.get('x-content-type-options') && !!headers.headers.get('x-frame-options'));
