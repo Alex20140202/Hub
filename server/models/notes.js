@@ -28,13 +28,16 @@ export function listNotes(userId, { q = '', tag = '', limit = 100, offset = 0 } 
 
 export const getNote = (id, userId) => shape(get(`SELECT ${COLUMNS} FROM notes WHERE id = ? AND user_id = ?`, id, userId));
 
+const normalizeTags = (value) =>
+  (Array.isArray(value) ? value.join(' ') : String(value ?? '')).trim();
+
 export function createNote(userId, input) {
   const { lastInsertRowid } = run(
     'INSERT INTO notes (user_id, title, body, tags, color, pinned) VALUES (?, ?, ?, ?, ?, ?)',
     userId,
     input.title ?? '',
     input.body ?? '',
-    input.tags ?? '',
+    normalizeTags(input.tags),
     input.color ?? 'slate',
     input.pinned ? 1 : 0,
   );

@@ -3,19 +3,23 @@ import { readBody, readQuery } from './http/context.js';
 import { parseCookies } from './http/body.js';
 import { sendJson, sendHtml, sendError, applySecurityHeaders, sendText, redirect } from './http/respond.js';
 import { serveStatic } from './http/static.js';
-import { unauthorized, notFound, tooMany, HttpError } from './lib/http-error.js';
+import { unauthorized, notFound, tooMany, forbidden, HttpError } from './lib/http-error.js';
 import { createLimiter } from './lib/rate-limit.js';
 import { logger } from './lib/logger.js';
 import { config } from './config.js';
 import { resolveUser, register as registerAuth } from './routes/auth.js';
 import { registerNotes, registerTodos, registerLinks, registerFiles } from './routes/workspace.js';
 import { registerDashboard, registerPublic, registerAdmin } from './routes/dashboard.js';
+import { registerBlog, registerComments, registerTaxonomy, registerPoints, bindPush } from './routes/blog.js';
+import { registerShorts, registerRedirect, registerMisc } from './routes/shorts.js';
+import { pushToRoom, broadcastSystem } from './ws/chat.js';
 import { renderPage } from './views/render.js';
 import { getSettings } from './models/stats.js';
 import * as notes from './models/notes.js';
 import * as todos from './models/todos.js';
 import * as links from './models/links.js';
 import * as files from './models/files.js';
+import { renderMarkdown, outline as outlineOf } from './views/markdown.js';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -36,6 +40,12 @@ function readAssets() {
 }
 
 let assets = readAssets();
+
+/** 私房推送：登录用户进入 /ws?room=<id> 后即可收到。 */
+const pushToUser = (userId, payload) => pushToRoom(`u${userId}`, payload);
+
+// 供路由层调用（积分通知、后台公告）
+bindPush(pushToUser);
 export const reloadAssets = () => {
   assets = readAssets();
 };
@@ -47,6 +57,13 @@ registerNotes(router);
 registerTodos(router);
 registerLinks(router);
 registerFiles(router);
+registerBlog(router);
+registerComments(router);
+registerTaxonomy(router);
+registerPoints(router);
+registerShorts(router);
+registerRedirect(router);
+registerMisc(router);
 registerDashboard(router);
 registerPublic(router);
 registerAdmin(router);
@@ -67,6 +84,21 @@ router.get('/api/export', async (ctx) => {
   });
 });
 
+// 公开文件下载：仅限标记为公开的文件，无需登录
+router.get('/d/:id', async (ctx) => {
+  const file = files.getPublicFile(Number(ctx.params.id));
+  if (!file) throw notFound('文件不存在或未开放分享');
+  files.registerDownload(file.id);
+  ctx.download(files.resolveStoredPath(file.storedName), file.name, file.mime);
+});
+
+// Markdown 预览：编辑器与服务端渲染共用同一套渲染器
+router.post('/api/preview', async (ctx) => {
+  const body = await ctx.input();
+  const source = String(body.markdown ?? body.body ?? '').slice(0, 100000);
+  ctx.json(200, { html: renderMarkdown(source), outline: outlineOf(source) });
+});
+
 router.get('/api/health', async (ctx) => {
   ctx.json(200, { ok: true, uptime: Math.round(process.uptime()), env: config.isProd ? 'production' : 'development' });
 });
@@ -74,7 +106,7 @@ router.get('/api/health', async (ctx) => {
 /* --------------------------------- 请求处理 --------------------------------- */
 
 /** 需要登录才能访问的路径前缀。 */
-const PROTECTED = ['/notes', '/todos', '/links', '/files', '/settings', '/admin', '/dashboard', '/search'];
+const PROTECTED = ['/notes', '/todos', '/links', '/files', '/settings', '/admin', '/search', '/short', '/points'];
 const isProtected = (pathname) => PROTECTED.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 
 function clientIpOf(req) {
@@ -104,6 +136,7 @@ export async function handleRequest(req, res) {
     auth,
     sessionId: auth?.sessionId ?? null,
     clientIp: clientIpOf(req),
+    viewed: new Set(), // 本次请求内已计浏览的文章，避免刷新重复计数
     input: () => readBody(req),
     setCookie: (cookie) => cookiesToSet.push(cookie),
     json: (status, payload, headers) => {
@@ -113,6 +146,11 @@ export async function handleRequest(req, res) {
     requireUser() {
       if (!ctx.user) throw unauthorized();
       return ctx.user;
+    },
+    requireAdmin() {
+      const user = ctx.requireUser();
+      if (user.role !== 'admin') throw forbidden('需要管理员权限');
+      return user;
     },
     download: (filePath, filename, mime) => {
       if (!existsSync(filePath)) throw notFound('文件已丢失');
@@ -176,6 +214,7 @@ export async function handleRequest(req, res) {
       sessionId: ctx.sessionId,
       assets,
       partial: wantsPartial,
+      viewed: ctx.viewed,
     });
     if (wantsPartial) return sendText(res, page.status, page.html, 'text/html; charset=utf-8');
     return sendHtml(res, page.status, page.html);

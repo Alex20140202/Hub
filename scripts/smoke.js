@@ -73,6 +73,7 @@ function createClient(base) {
   return {
     get: (url, options) => request('GET', url, options),
     post: (url, body, options) => request('POST', url, { ...options, body }),
+    put: (url, body, options) => request('PUT', url, { ...options, body }),
     patch: (url, body, options) => request('PATCH', url, { ...options, body }),
     del: (url, options) => request('DELETE', url, options),
     raw: (method, url, options) => request(method, url, { ...options, raw: true }),
@@ -150,6 +151,8 @@ async function runSuite(base, workDir) {
   const guest = createClient(base);
   const user = createClient(base);
   const admin = createClient(base);
+  const otherUserEarly = createClient(base);
+  await otherUserEarly.post('/api/auth/register', { email: 'early@smoke.dev', username: 'early', password: 'earlypass123' });
 
   /* ------------------------------ 静态资源 ------------------------------ */
   section('静态资源');
@@ -221,8 +224,9 @@ async function runSuite(base, workDir) {
   check('片段不含 html 外壳', !partialText.includes('<!doctype html>') && !partialText.includes('class="app-main"'));
 
   const badPage = await user.raw('GET', '/nope-not-here');
+  const badHtml = await badPage.text();
   eq('未知页面返回 404', badPage.status, 404);
-  check('404 页面含提示', (await badPage.text()).includes('走丢') || (await Promise.resolve('')) === '');
+  check('404 页面含提示', badHtml.includes('走丢'));
 
   const apiMiss = await user.get('/api/does-not-exist');
   eq('未知接口返回 404 JSON', apiMiss.status, 404);
@@ -493,11 +497,193 @@ async function runSuite(base, workDir) {
   const replay = await guest.post('/api/auth/login', { email: 'tester@smoke.dev', password: 'testpass123' });
   eq('旧密码已失效', replay.status, 401);
 
-  /* --------------------------- 双端契约一致性 --------------------------- */
+  /* -------------------------------- 博客 -------------------------------- */
+  section('博客与评论');
+  // 上一节登出后重新登录，后续用例需要有效会话
+  const reLogin2 = await user.post('/api/auth/login', { email: 'tester@smoke.dev', password: 'newpass12345' });
+  eq('重新登录成功', reLogin2.status, 200);
+
+  const blogList = await user.get('/api/posts');
+  check('博客列表有数据', blogList.body?.items?.length > 0, `实际 ${blogList.body?.items?.length}`);
+  check('列表项含标签数组', Array.isArray(blogList.body?.items?.[0]?.tags));
+  const firstSlug = blogList.body.items[0].slug;
+
+  const blogPageRes = await user.raw('GET', '/blog');
+  check('博客页渲染', (await blogPageRes.text()).includes('class="post-card"'), '应有文章卡片');
+
+  const detail = await user.raw('GET', `/blog/${firstSlug}`);
+  const detailHtml = await detail.text();
+  eq('文章详情页 200', detail.status, 200);
+  check('正文已渲染 Markdown', /<div class="md">/.test(detailHtml));
+  check('详情页含评论区', detailHtml.includes('data-form="comment"'));
+  check('目录/摘要存在', detailHtml.includes('post-lede'));
+
+  const bySlugApi = await user.get(`/api/posts/${firstSlug}`);
+  eq('按 slug 取文章', bySlugApi.body?.post?.slug, firstSlug);
+  check('正文非空', typeof bySlugApi.body?.post?.body === 'string' && bySlugApi.body.post.body.length > 0);
+
+  const newPost = await user.post('/api/posts', {
+    title: '冒烟测试文章',
+    body: '## 小节\n\n- 一\n- 二\n\n`code`',
+    tags: ['测试'],
+    category: '技术',
+    status: 'published',
+  });
+  eq('创建文章 201', newPost.status, 201);
+  eq('新文章默认已发布', newPost.body?.post?.status, 'published');
+  const postId = newPost.body?.post?.id;
+  check('发布获得积分', (newPost.body?.post?.pointsGained ?? 0) >= 0);
+
+  const draft = await user.post('/api/posts', { title: '草稿文章', body: '还没写完', status: 'draft' });
+  eq('创建草稿', draft.body?.post?.status, 'draft');
+
+  const emptyTitle = await user.post('/api/posts', { body: '无标题' });
+  eq('文章缺标题被拒绝', emptyTitle.status, 400);
+
+  const updated = await user.put(`/api/posts/${postId}`, { title: '改过的文章标题' });
+  eq('更新文章', updated.body?.post?.title, '改过的文章标题');
+
+  const liked = await user.post(`/api/posts/${postId}/like`);
+  eq('点赞文章', liked.body?.liked, true);
+  const unliked = await user.post(`/api/posts/${postId}/like`);
+  eq('取消点赞', unliked.body?.liked, false);
+
+  const marked = await user.post(`/api/posts/${postId}/bookmark`);
+  eq('收藏文章', marked.body?.bookmarked, true);
+  const markedList = await user.get('/api/bookmarks');
+  check('收藏列表包含该文章', markedList.body?.items?.some((item) => item.id === postId));
+
+  const comment = await user.post(`/api/posts/${postId}/comments`, { body: '写得很清楚' });
+  eq('发表评论 201', comment.status, 201);
+  eq('登录用户评论直接通过', comment.body?.pending, false);
+  const commentId = comment.body?.comment?.id;
+  const commentList = await user.get(`/api/posts/${postId}/comments`);
+  check('评论出现在列表', commentList.body?.items?.some((item) => item.id === commentId));
+
+  const otherComment = await otherUserEarly.post(`/api/posts/${postId}/comments`, { body: '我也来看看' });
+  eq('他人评论 201', otherComment.status, 201);
+  const commentLiked = await otherUserEarly.post(`/api/comments/${commentId}/like`);
+  eq('评论点赞', commentLiked.body?.liked, true);
+
+  const preview = await user.post('/api/preview', { markdown: '# 标题\n\n**粗**' });
+  check('Markdown 预览渲染标题', /<h1[^>]*>标题<\/h1>/.test(preview.body?.html ?? ''), preview.body?.html?.slice(0, 60));
+  check('Markdown 预览渲染粗体', preview.body?.html?.includes('<strong>粗</strong>'));
+
+  const forbiddenEdit = await otherUserEarly.put(`/api/posts/${postId}`, { title: '恶意修改' });
+  eq('不能编辑他人文章', forbiddenEdit.status, 403);
+
+  const editorPage = await user.raw('GET', `/blog/${postId}/edit`);
+  const editorHtml = await editorPage.text(); // 响应体只能读一次
+  eq('编辑页 200', editorPage.status, 200);
+  check('编辑页含预览容器', editorHtml.includes('data-preview'));
+  check('编辑页已有内容回填', editorHtml.includes('改过的文章标题'));
+
+  await user.del(`/api/posts/${postId}`);
+  const gone = await user.get(`/api/posts/${postId}`);
+  eq('删除后取不到', gone.status, 404);
+
+  /* -------------------------------- 短链 -------------------------------- */
+  section('短链');
+  const shortList = await user.get('/api/shorts');
+  check('短链列表可读', Array.isArray(shortList.body?.items));
+
+  const badTarget = await user.post('/api/shorts', { targetUrl: 'javascript:alert(1)' });
+  eq('短链拒绝危险协议', badTarget.status, 400);
+
+  const short = await user.post('/api/shorts', { targetUrl: 'https://example.com/docs', title: '文档' });
+  eq('创建短链 201', short.status, 201);
+  const shortCode = short.body?.short?.code;
+  check('短码已生成', typeof shortCode === 'string' && shortCode.length >= 5);
+
+  const hop = await user.raw('GET', `/s/${shortCode}`);
+  eq('短链跳转 302', hop.status, 302);
+  eq('跳转目标正确', hop.headers.get('location'), 'https://example.com/docs');
+  const afterHop = await user.get('/api/shorts');
+  eq('点击计数 +1', afterHop.body?.items?.find((item) => item.code === shortCode)?.clicks, 1);
+
+  const custom = await user.post('/api/shorts', { targetUrl: 'https://nodejs.org', code: 'node' });
+  eq('自定义短码生效', custom.body?.short?.code, 'node');
+  const dupeCode = await user.post('/api/shorts', { targetUrl: 'https://example.org', code: 'node' });
+  check('短码冲突自动加后缀', dupeCode.body?.short?.code?.startsWith('node') && dupeCode.body.short.code !== 'node', dupeCode.body?.short?.code);
+
+  await user.patch(`/api/shorts/${short.body.short.id}`, { active: false });
+  const stopped = await user.raw('GET', `/s/${shortCode}`);
+  eq('停用后跳转 404', stopped.status, 404);
+
+  const missingShort = await user.raw('GET', '/s/does-not-exist-xyz');
+  eq('不存在的短码 404', missingShort.status, 404);
+
+  /* ------------------------------- 积分与商城 ------------------------------- */
+  section('积分与商城');
+  const pointsOverview = await user.get('/api/points/overview');
+  check('积分总览含签到日历', Array.isArray(pointsOverview.body?.calendar));
+  check('积分总览含赚分规则', pointsOverview.body?.rules?.length > 0);
+  check('积分总览含排行榜', Array.isArray(pointsOverview.body?.leaderboard));
+  check('余额为数字', typeof pointsOverview.body?.balance === 'number');
+
+  const balanceBefore = pointsOverview.body.balance;
+  const checkinResult = await user.post('/api/points/checkin');
+  check('签到成功', checkinResult.status === 200 && checkinResult.body?.already === false, JSON.stringify(checkinResult.body));
+  check('签到发放积分', checkinResult.body?.reward > 0);
+  const twice = await user.post('/api/points/checkin');
+  eq('重复签到被识别', twice.body?.already, true);
+
+  const afterCheckin = await user.get('/api/points/overview');
+  eq('余额已增加', afterCheckin.body?.balance, balanceBefore + checkinResult.body.reward);
+
+  const shop = await user.get('/api/shop/items');
+  check('商城有在售道具', shop.body?.items?.length > 0);
+
+  // 积分不足时的行为
+  const expensive = shop.body.items.filter((item) => item.cost > afterCheckin.body.balance);
+  if (expensive.length) {
+    const broke = await user.post(`/api/shop/redeem/${expensive[0].id}`);
+    eq('积分不足被拒绝', broke.status, 400);
+    check('提示包含还差多少', /还差\s*\d+/.test(broke.body?.error ?? ''), broke.body?.error);
+  }
+
+  // 通过发布文章赚积分（每篇 +20），直到能买得起最便宜的道具
+  let balance = afterCheckin.body.balance;
+  let cheapest = shop.body.items.slice().sort((a, b) => a.cost - b.cost)[0];
+  for (let i = 0; i < 12 && balance < cheapest.cost; i += 1) {
+    const earned = await user.post('/api/posts', { title: `赚积分 ${i}`, body: '内容', status: 'published' });
+    balance = earned.body?.post?.pointsGained ? balance + earned.body.post.pointsGained : balance;
+  }
+  check('发布文章可持续赚积分', balance >= cheapest.cost, `余额 ${balance}，最便宜 ${cheapest.cost}`);
+  eq('发布积分计入余额', balance > afterCheckin.body.balance, true);
+
+  const redeemResult = await user.post(`/api/shop/redeem/${cheapest.id}`);
+  eq('兑换成功 201', redeemResult.status, 201);
+  eq('兑换后扣分', redeemResult.body?.balance, balance - cheapest.cost);
+  const mine = await user.get('/api/shop/mine');
+  check('道具已入库', mine.body?.items?.some((item) => item.id === cheapest.id));
+
+  const noItem = await user.post('/api/shop/redeem/999999');
+  eq('兑换不存在的道具 400', noItem.status, 400);
+
+  const pointsPage = await user.raw('GET', '/points');
+  const pointsHtml = await pointsPage.text(); // 响应体只能读一次
+  check('积分页渲染签到日历', pointsHtml.includes('cal-cell'));
+  check('积分页渲染商城', pointsHtml.includes('shop-card'));
+
+  const leaderboard = await user.get('/api/points/leaderboard');
+  check('排行榜带排名', leaderboard.body?.items?.[0]?.rank === 1);
+
+  /* -------------------------------- 订阅 -------------------------------- */
+  section('订阅与公开分享');
+  const sub = await guest.post('/api/subscribe', { email: 'reader@example.com' });
+  eq('订阅成功', sub.status, 200);
+  const badMail = await guest.post('/api/subscribe', { email: 'not-an-email' });
+  eq('非法邮箱被拒绝', badMail.status, 400);
+
+  /* ------------------------------- 双端契约一致性 ------------------------------- */
   section('双端契约一致性');
   const contractUser = createClient(base);
   await contractUser.post('/api/auth/login', { email: 'root@smoke.dev', password: 'rootpass123' });
-  const contractPages = ['/', '/notes', '/todos', '/links', '/files', '/search', '/settings', '/admin', `/notes/${noteId}`];
+  const contractPages = [
+    '/', '/blog', `/blog/${firstSlug}`, '/blog/new', '/notes', '/todos', '/links', '/files',
+    '/short', '/points', '/chat', '/search', '/settings', '/admin', `/notes/${noteId}`, '/u/root',
+  ];
   const rendered = new Set();
   for (const page of contractPages) {
     const response = await contractUser.raw('GET', page);

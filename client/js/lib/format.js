@@ -43,6 +43,17 @@ export function fromNow(value) {
   return date.toLocaleDateString('zh-CN');
 }
 
+export function formatDate(value, withTime = false) {
+  const date = parseTime(value);
+  if (!date) return '';
+  return date.toLocaleString(
+    'zh-CN',
+    withTime
+      ? { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+      : { year: 'numeric', month: '2-digit', day: '2-digit' },
+  );
+}
+
 /** <input type="datetime-local"> 需要本地时间字符串（YYYY-MM-DDTHH:mm）。 */
 export const toLocalInput = (value) => {
   const date = parseTime(value);

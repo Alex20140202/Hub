@@ -3,6 +3,7 @@ import { config, suggestSecret } from './config.js';
 import { initDb, closeDb } from './db.js';
 import { seed } from './models/seed.js';
 import { handleRequest, reloadAssets } from './app.js';
+import { handleUpgrade } from './ws/chat.js';
 import { logger } from './lib/logger.js';
 import { mkdirSync } from 'node:fs';
 
@@ -17,6 +18,16 @@ const server = createServer((req, res) => {
     if (!res.headersSent) res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('服务器内部错误');
   });
+});
+
+// WebSocket 升级：聊天室走 /ws，与 HTTP 共用同一个端口
+server.on('upgrade', (req, socket, head) => {
+  try {
+    handleUpgrade(req, socket, head);
+  } catch (error) {
+    logger.error('WebSocket 升级失败:', error.message);
+    socket.destroy();
+  }
 });
 
 server.listen(config.port, config.host, () => {

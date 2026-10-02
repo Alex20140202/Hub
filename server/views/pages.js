@@ -3,28 +3,7 @@ import { formatBytes, formatNumber, fromNow, formatDate, hostname } from './form
 import { globalSearch } from '../models/search.js';
 import { config } from '../config.js';
 
-/* --------------------------------- 通用片段 --------------------------------- */
-
-const pageHead = (title, subtitle, action = '') =>
-  `<div class="page-head">
-    <div><h2 class="page-heading">${escapeHtml(title)}</h2>${subtitle ? `<p class="page-sub">${escapeHtml(subtitle)}</p>` : ''}</div>
-    ${action}
-  </div>`;
-
-const empty = (title, hint, action = '') =>
-  `<div class="empty">
-     <div class="empty-mark" aria-hidden="true">${icon('notes', 26)}</div>
-     <p class="empty-title">${escapeHtml(title)}</p>
-     ${hint ? `<p class="empty-hint">${escapeHtml(hint)}</p>` : ''}
-     ${action}
-   </div>`;
-
-const statCard = ({ label, value, hint, tone = '' }) =>
-  `<div class="stat ${tone}">
-     <span class="stat-label">${escapeHtml(label)}</span>
-     <strong class="stat-value">${escapeHtml(value)}</strong>
-     ${hint ? `<span class="stat-hint">${escapeHtml(hint)}</span>` : ''}
-   </div>`;
+import { pageHead, empty, statCard, pager, queryHref } from './shared.js';
 
 /* --------------------------------- 仪表盘 --------------------------------- */
 
@@ -653,17 +632,50 @@ export function authPage({ mode, site, values = {}, error = '' }) {
 }
 
 export function userPage(ctx) {
-  const { profile, stats, notes: recent } = ctx.data;
-  return `${pageHead(profile.nickname, `@${profile.username}${profile.bio ? ` · ${profile.bio}` : ''}`, `<a class="btn" href="/notes">看看笔记</a>`)}
-  <section class="stat-grid">
-    ${statCard({ label: '笔记', value: formatNumber(stats.notes), tone: 'tone-indigo' })}
-    ${statCard({ label: '书签', value: formatNumber(stats.links), tone: 'tone-cyan' })}
-    ${statCard({ label: '加入于', value: formatDate(profile.createdAt), tone: 'tone-emerald' })}
-    ${statCard({ label: '角色', value: profile.role === 'admin' ? '管理员' : '用户', tone: 'tone-amber' })}
+  const { profile, stats, notes: recent, articles = [] } = ctx.data;
+  const isSelf = ctx.user && ctx.user.id === profile.id;
+  return `${pageHead(
+    profile.nickname,
+    `@${profile.username}${profile.bio ? ` · ${profile.bio}` : ''}`,
+    isSelf ? `<a class="btn" href="/settings">编辑资料</a>` : '',
+  )}
+  <section class="profile-head">
+    <span class="avatar avatar-lg" style="--hue:${Number(profile.avatarHue) || 210}">${escapeHtml(initials(profile.nickname))}</span>
+    <div>
+      <h2>${escapeHtml(profile.nickname)}</h2>
+      <p class="row-meta">@${escapeHtml(profile.username)} · 加入于 ${escapeHtml(formatDate(profile.createdAt))}</p>
+      ${profile.bio ? `<p class="profile-bio">${escapeHtml(profile.bio)}</p>` : ''}
+    </div>
   </section>
+
+  <section class="stat-grid">
+    ${statCard({ label: '文章', value: formatNumber(stats.posts), hint: `${formatNumber(stats.views)} 次阅读`, tone: 'tone-indigo' })}
+    ${statCard({ label: '笔记', value: formatNumber(stats.notes), tone: 'tone-emerald' })}
+    ${statCard({ label: '书签', value: formatNumber(stats.links), tone: 'tone-cyan' })}
+    ${statCard({ label: '积分', value: formatNumber(profile.points ?? 0), hint: profile.role === 'admin' ? '管理员' : '注册用户', tone: 'tone-amber' })}
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h3>最新文章</h3>${articles.length ? `<a class="link-more" href="/blog?author=${attr(profile.username)}">全部</a>` : ''}</div>
+    ${
+      articles.length
+        ? `<ul class="post-feed">${articles
+            .map(
+              (post) => `<li class="feed-item">
+                <a href="/blog/${attr(post.slug)}">
+                  <strong>${escapeHtml(post.title)}</strong>
+                  <span class="row-meta">${escapeHtml(formatDate(post.publishedAt ?? post.createdAt))} · ${formatNumber(post.views)} 阅读 · ${formatNumber(post.commentCount ?? 0)} 评论</span>
+                </a>
+              </li>`,
+            )
+            .join('')}</ul>`
+        : empty('还没有发布文章', '')
+    }
+  </section>
+
   <section class="card">
     <div class="card-head"><h3>最近笔记</h3></div>
-    ${recent.length ? `<ul class="list">${recent.map(noteRow).join('')}</ul>` : empty('还没有公开笔记', '')}
+    ${recent.length ? `<ul class="list">${recent.map(noteRow).join('')}</ul>` : empty('还没有笔记', '')}
   </section>`;
 }
 

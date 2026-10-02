@@ -30,7 +30,7 @@ export function createLink(userId, input) {
     input.title,
     input.url,
     input.description ?? '',
-    input.tags ?? '',
+    Array.isArray(input.tags) ? input.tags.join(' ') : (input.tags ?? ''),
     input.starred ? 1 : 0,
   );
   return getLink(lastInsertRowid, userId);

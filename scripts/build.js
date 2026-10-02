@@ -15,7 +15,7 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const clientDir = path.join(rootDir, 'client');
 const outDir = path.join(rootDir, 'public', 'assets');
 
-const CSS_ORDER = ['tokens.css', 'base.css', 'layout.css', 'components.css'];
+const CSS_ORDER = ['tokens.css', 'base.css', 'layout.css', 'components.css', 'modules.css'];
 
 /** 轻量 CSS 压缩：去注释、折叠空白、去掉最后一个分号。 */
 function minifyCss(source) {

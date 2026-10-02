@@ -3,7 +3,8 @@ import { api, fetchFragment } from './lib/api.js';
 import { toast, toastOk, toastErr } from './ui/toast.js';
 import { openModal, closeModal, confirmModal } from './ui/modal.js';
 import { openPalette, installPalette } from './ui/palette.js';
-import { noteModal, todoModal, linkModal, uploadModal } from './ui/forms.js';
+import { noteModal, todoModal, linkModal, uploadModal, shortModal } from './ui/forms.js';
+import { createChat } from './ui/chat.js';
 
 const state = readState();
 const main = () => document.getElementById('main');
@@ -162,6 +163,120 @@ const ACTIONS = {
       toastErr(error.message);
     }
   },
+  'new-short': () => shortModal(),
+  'delete-post': async (node) => {
+    const ok = await confirmModal({ title: '删除文章', message: '文章与全部评论都会删除，无法恢复。', confirmText: '删除' });
+    if (!ok) return;
+    try {
+      await api.blog.remove(node.dataset.id);
+      toastOk('文章已删除');
+      navigate('/blog', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'like-post': async (node) => {
+    if (!state.user) return requireLogin();
+    try {
+      const result = await api.blog.like(node.dataset.id);
+      node.classList.toggle('is-liked', result.liked);
+      const counter = node.querySelector('[data-like-count]');
+      if (counter) counter.textContent = result.count;
+      toast(result.liked ? '已点赞，作者 +1 积分' : '已取消点赞', 'ok', 1600);
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'bookmark-post': async (node) => {
+    if (!state.user) return requireLogin();
+    try {
+      const result = await api.blog.bookmark(node.dataset.id);
+      node.classList.toggle('is-liked', result.bookmarked);
+      node.childNodes[0].nodeValue = result.bookmarked ? '已收藏 ' : '收藏 ';
+      toast(result.bookmarked ? '已加入收藏' : '已移出收藏', 'ok', 1600);
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'like-comment': async (node) => {
+    if (!state.user) return requireLogin();
+    try {
+      const result = await api.blog.likeComment(node.dataset.id);
+      const counter = node.querySelector('span');
+      if (counter) counter.textContent = result.count;
+      node.classList.toggle('is-liked', result.liked);
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'copy-short': async (node) => {
+    const link = `${location.origin}/s/${node.dataset.code}`;
+    await copyText(link);
+    toastOk(`已复制 ${link}`);
+  },
+  'copy-link': async () => {
+    await copyText(location.href);
+    toastOk('链接已复制');
+  },
+  'toggle-short': async (node) => {
+    try {
+      await api.shorts.toggle(node.dataset.id, node.dataset.active !== '1');
+      navigate('/short', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'delete-short': async (node) => {
+    const ok = await confirmModal({ title: '删除短链', message: '删除后该短码立即失效。', confirmText: '删除' });
+    if (!ok) return;
+    try {
+      await api.shorts.remove(node.dataset.id);
+      toastOk('短链已删除');
+      navigate('/short', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  checkin: async (node) => {
+    try {
+      const result = await api.points.checkin();
+      if (result.already) {
+        toast(`今天已经签过啦，当前连签 ${result.streak} 天`, 'info');
+        return;
+      }
+      toastOk(`签到成功 +${result.reward} 积分，连签 ${result.streak} 天`);
+      node.disabled = true;
+      node.textContent = '今日已签到';
+      navigate('/points', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  redeem: async (node) => {
+    try {
+      const result = await api.points.redeem(node.dataset.id);
+      toastOk(`兑换成功：${result.item.name}`);
+      navigate('/points', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'use-item': async (node) => {
+    const ok = await confirmModal({
+      title: '使用道具',
+      message: '确定要使用这个道具吗？改名券使用后可在设置里修改用户名。',
+      confirmText: '使用',
+      danger: false,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.points.use(node.dataset.id);
+      toastOk(`已使用：${result.item.name}`);
+      navigate('/points', { push: false });
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
   'toggle-theme': () => toggleTheme(),
   'toggle-nav': () => document.body.classList.toggle('nav-open'),
   'open-search': () => openPalette(),
@@ -217,7 +332,28 @@ function quickAdd() {
   else if (path.startsWith('/todos')) todoModal();
   else if (path.startsWith('/links')) linkModal();
   else if (path.startsWith('/files')) uploadModal(() => navigate('/files', { push: false }));
+  else if (path.startsWith('/short')) shortModal();
+  else if (path.startsWith('/blog/new') || path.startsWith('/blog/') && path.endsWith('/edit')) location.assign('/blog/new');
   else quickAddModal();
+}
+
+const requireLogin = () => {
+  toastErr('请先登录');
+  setTimeout(() => location.assign(`/login?next=${encodeURIComponent(location.pathname)}`), 800);
+};
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // 非安全上下文下 clipboard 不可用，退回选中复制
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
 }
 
 function quickAddModal() {
@@ -230,6 +366,8 @@ function quickAddModal() {
         option('新建待办', '添加一件要做的事', () => todoModal()),
         option('新建书签', '收藏一个网址', () => linkModal()),
         option('上传文件', '把文件放进 Hub', () => uploadModal(() => navigate('/files', { push: false }))),
+        option('创建短链', '把长链接变短', () => shortModal()),
+        option('写文章', 'Markdown 写作', () => location.assign('/blog/new')),
       ]);
       function option(title, hint, run) {
         return el(
@@ -314,6 +452,24 @@ const FORMS = {
     toastOk('密码已更新');
     form.reset();
   },
+  post: async (values, form) => {
+    const status = form.querySelector('button[value]:focus')?.value ?? form.dataset.status ?? 'published';
+    const payload = { ...values, coverHue: Number(values.coverHue ?? 220) };
+    if (form.dataset.id) await api.blog.update(form.dataset.id, payload);
+    else await api.blog.create(payload);
+    toastOk('已保存');
+    location.assign(form.dataset.id ? `/blog/${form.dataset.id}` : '/blog');
+  },
+  comment: async (values, form) => {
+    const postId = form.dataset.post;
+    const result = await api.blog.comment(postId, values);
+    toastOk(result.pending ? '评论已提交，待管理员审核后展示' : '评论已发布');
+    location.reload();
+  },
+  subscribe: async (values) => {
+    const result = await api.subscribe(values.email);
+    toastOk(result.existed ? '你已订阅过，邮箱保持有效' : '订阅成功，有更新会通知你');
+  },
   site: async (values) => {
     await api.admin.updateSettings(values);
     toastOk('站点设置已保存');
@@ -329,6 +485,8 @@ function handleSubmit(form) {
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    // 编辑器的「发布 / 存草稿」靠提交按钮的 value 区分
+    if (event.submitter?.value) form.dataset.status = event.submitter.value;
     if (submit) submit.disabled = true;
     error.hidden = true;
     try {
@@ -546,11 +704,60 @@ function installDragUpload() {
 
 /* --------------------------------- 启动 --------------------------------- */
 
+let chatClient = null;
+
 function bindAfterSwap() {
   for (const form of $$('[data-form]')) handleSubmit(form);
   installPasswordMeter(document);
+  installEditor();
   installDragUpload();
+  mountChat();
   maybeAutoOpen(new URL(location.href));
+}
+
+/** 编辑器：输入防抖后向服务端要渲染结果，保证预览与线上渲染完全一致。 */
+function installEditor() {
+  const form = $('[data-form="post"]');
+  if (!form || form.dataset.previewBound) return;
+  form.dataset.previewBound = '1';
+
+  const body = form.querySelector('[name="body"]');
+  const target = $('[data-preview]');
+  if (!body || !target) return;
+
+  const update = debounce(async (value) => {
+    if (!value.trim()) {
+      target.innerHTML = '<p class="hint">开始输入即可预览</p>';
+      return;
+    }
+    try {
+      const result = await api.preview(value);
+      target.innerHTML = result.html;
+    } catch {
+      target.innerHTML = '<p class="hint">预览失败</p>';
+    }
+  }, 420);
+
+  body.addEventListener('input', () => update(body.value));
+  if (body.value.trim()) update(body.value);
+}
+
+function mountChat() {
+  const log = $('#chat-log');
+  if (!log) {
+    chatClient?.close();
+    chatClient = null;
+    return;
+  }
+  if (chatClient) return;
+  chatClient = createChat({
+    log,
+    input: $('.chat-input input[name="body"]'),
+    status: $('[data-chat-status]'),
+    onlineBadge: $('[data-online-count]'),
+    onlineList: $('[data-online-list]'),
+    room: log.dataset.room || 'lobby',
+  });
 }
 
 function boot() {

@@ -69,6 +69,10 @@ export async function deleteFile(id, userId) {
   return true;
 }
 
+/** 公开分享视图：只暴露已标记公开的文件。 */
+export const getPublicFile = (id) =>
+  shape(get(`SELECT ${COLUMNS} FROM files WHERE id = ? AND is_public = 1`, id));
+
 export const registerDownload = (id) => run('UPDATE files SET downloads = downloads + 1 WHERE id = ?', id).changes > 0;
 
 export const storageStats = (userId) => ({

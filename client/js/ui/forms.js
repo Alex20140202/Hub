@@ -184,3 +184,21 @@ export function uploadModal(onUploaded) {
     },
   });
 }
+
+/* --------------------------------- 短链 --------------------------------- */
+
+export function shortModal() {
+  formModal({
+    title: '创建短链',
+    submitText: '创建',
+    fields: [
+      field('目标网址', input('targetUrl', { placeholder: 'https://example.com/very/long/path', required: true, autofocus: true })),
+      field('自定义短码', input('code', { maxlength: 32, placeholder: '留空自动生成' }), '只能用字母、数字、- 和 _'),
+      field('备注', input('title', { maxlength: 120, placeholder: '方便自己辨认' })),
+    ],
+    onSubmit: async (values) => {
+      const result = await api.shorts.create(values);
+      toastOk(`已创建 ${location.origin}/s/${result.short.code}`);
+    },
+  });
+}

@@ -1,19 +1,36 @@
 import { escapeHtml, icon, initials, jsonScript } from './html.js';
 
 const NAV = [
-  { href: '/', label: '仪表盘', icon: 'dashboard', auth: true },
-  { href: '/notes', label: '笔记', icon: 'notes', auth: true },
-  { href: '/todos', label: '待办', icon: 'todos', auth: true },
-  { href: '/links', label: '书签', icon: 'links', auth: true },
-  { href: '/files', label: '文件', icon: 'files', auth: true },
-  { href: '/search', label: '搜索', icon: 'search', auth: true },
-  { href: '/settings', label: '设置', icon: 'settings', auth: true },
-  { href: '/admin', label: '管理', icon: 'admin', auth: 'admin' },
+  { group: '总览', items: [
+    { href: '/', label: '首页', icon: 'home', auth: true },
+    { href: '/blog', label: '博客', icon: 'blog', auth: false },
+    { href: '/search', label: '搜索', icon: 'search', auth: true },
+  ] },
+  { group: '工作台', items: [
+    { href: '/notes', label: '笔记', icon: 'notes', auth: true },
+    { href: '/todos', label: '待办', icon: 'todos', auth: true },
+    { href: '/links', label: '书签', icon: 'links', auth: true },
+    { href: '/files', label: '文件', icon: 'files', auth: true },
+    { href: '/short', label: '短链', icon: 'short', auth: true },
+  ] },
+  { group: '社区', items: [
+    { href: '/chat', label: '聊天室', icon: 'chat', auth: false },
+    { href: '/points', label: '积分中心', icon: 'points', auth: true },
+    { href: '/settings', label: '设置', icon: 'settings', auth: true },
+    { href: '/admin', label: '管理后台', icon: 'admin', auth: 'admin' },
+  ] },
 ];
 
+const FLAT_NAV = NAV.flatMap((section) => section.items);
+
 const titleOf = (pathname) => {
-  const item = NAV.find((entry) => entry.href === pathname);
-  return item?.label ?? '页面';
+  if (pathname === '/') return '首页';
+  const item = FLAT_NAV.find((entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`));
+  if (item) return item.label;
+  if (pathname.startsWith('/u/')) return '用户主页';
+  if (pathname.startsWith('/d/')) return '文件分享';
+  if (pathname.startsWith('/s/')) return '短链跳转';
+  return '页面';
 };
 
 const isActive = (entry, pathname) =>
@@ -24,19 +41,28 @@ const isActive = (entry, pathname) =>
  * 服务端渲染完整结构，客户端 JS 负责接管交互与局部更新。
  */
 export function renderLayout({ title, description, pathname, user, content, assets, settings, initialState }) {
-  const visible = NAV.filter((entry) => {
-    if (!entry.auth) return true;
+  const visible = (item) => {
+    if (!item.auth) return true;
     if (!user) return false;
-    return entry.auth !== 'admin' || user.role === 'admin';
-  });
+    return item.auth !== 'admin' || user.role === 'admin';
+  };
 
-  const nav = visible
-    .map(
-      (entry) => `<a class="nav-link${isActive(entry, pathname) ? ' is-active' : ''}" href="${entry.href}"${
-        isActive(entry, pathname) ? ' aria-current="page"' : ''
-      }>${icon(entry.icon)}<span>${entry.label}</span></a>`,
-    )
-    .join('');
+  const nav = NAV.map((section) => {
+    const items = section.items.filter(visible);
+    if (!items.length) return '';
+    return `<div class="nav-group">
+      <span class="nav-group-label">${escapeHtml(section.group)}</span>
+      ${items
+        .map(
+          (entry) => `<a class="nav-link${isActive(entry, pathname) ? ' is-active' : ''}" href="${entry.href}"${
+            isActive(entry, pathname) ? ' aria-current="page"' : ''
+          }>${icon(entry.icon)}<span>${entry.label}</span>${
+            entry.href === '/points' && user?.points ? `<em class="nav-badge">${user.points > 999 ? '999+' : user.points}</em>` : ''
+          }</a>`,
+        )
+        .join('')}
+    </div>`;
+  }).join('');
 
   const theme = user?.theme ?? 'auto';
   const accent = user?.accent ?? 'indigo';

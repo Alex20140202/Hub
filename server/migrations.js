@@ -1,6 +1,6 @@
 /**
  * 迁移列表：按数组顺序执行，已应用的记录写入 `_migrations`，重复启动不会重复建表。
- * 新增结构请追加新条目（如 { name: '002_xxx', up: '...' }），不要修改已发布条目。
+ * 新增结构请追加新条目（如 { name: '008_xxx', up: '...' }），不要修改已发布条目。
  */
 export const migrations = [
   {
@@ -109,6 +109,172 @@ export const migrations = [
       INSERT OR IGNORE INTO settings (key, value) VALUES ('site_name', 'Hub 超级中心');
       INSERT OR IGNORE INTO settings (key, value) VALUES ('site_tagline', '一处收纳你的笔记、待办、书签与文件');
       INSERT OR IGNORE INTO settings (key, value) VALUES ('allow_registration', 'true');
+    `,
+  },
+  {
+    name: '003_blog',
+    up: `
+      CREATE TABLE categories (
+        id          INTEGER PRIMARY KEY,
+        name        TEXT NOT NULL UNIQUE,
+        slug        TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        position    INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE tags (
+        id   INTEGER PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        slug TEXT NOT NULL UNIQUE
+      );
+
+      CREATE TABLE posts (
+        id           INTEGER PRIMARY KEY,
+        author_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        category_id  INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+        title        TEXT NOT NULL,
+        slug         TEXT NOT NULL UNIQUE,
+        excerpt      TEXT NOT NULL DEFAULT '',
+        body         TEXT NOT NULL DEFAULT '',
+        cover_hue    INTEGER NOT NULL DEFAULT 220,
+        status       TEXT NOT NULL DEFAULT 'published',
+        featured     INTEGER NOT NULL DEFAULT 0,
+        views        INTEGER NOT NULL DEFAULT 0,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        published_at TEXT
+      );
+      CREATE INDEX idx_posts_status ON posts(status, published_at DESC);
+      CREATE INDEX idx_posts_author ON posts(author_id, status);
+
+      CREATE TABLE post_tags (
+        post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+        PRIMARY KEY (post_id, tag_id)
+      );
+      CREATE INDEX idx_post_tags_tag ON post_tags(tag_id);
+
+      CREATE TABLE comments (
+        id         INTEGER PRIMARY KEY,
+        post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        author_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        parent_id  INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+        guest_name TEXT NOT NULL DEFAULT '',
+        body       TEXT NOT NULL,
+        status     TEXT NOT NULL DEFAULT 'approved',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_comments_post ON comments(post_id, status, created_at);
+
+      CREATE TABLE reactions (
+        id          INTEGER PRIMARY KEY,
+        target_type TEXT NOT NULL,
+        target_id   INTEGER NOT NULL,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (target_type, target_id, user_id)
+      );
+
+      CREATE TABLE bookmarks (
+        id         INTEGER PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        post_id    INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (user_id, post_id)
+      );
+    `,
+  },
+  {
+    name: '004_shortlinks',
+    up: `
+      CREATE TABLE short_links (
+        id         INTEGER PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        code       TEXT NOT NULL UNIQUE,
+        target_url TEXT NOT NULL,
+        title      TEXT NOT NULL DEFAULT '',
+        clicks     INTEGER NOT NULL DEFAULT 0,
+        active     INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_shorts_user ON short_links(user_id, created_at DESC);
+    `,
+  },
+  {
+    name: '005_points',
+    up: `
+      ALTER TABLE users ADD COLUMN points INTEGER NOT NULL DEFAULT 0;
+
+      CREATE TABLE point_logs (
+        id         INTEGER PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        delta      INTEGER NOT NULL,
+        balance    INTEGER NOT NULL,
+        reason     TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_point_logs_user ON point_logs(user_id, id DESC);
+
+      CREATE TABLE checkins (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day        TEXT NOT NULL,
+        streak     INTEGER NOT NULL DEFAULT 1,
+        reward     INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (user_id, day)
+      );
+
+      CREATE TABLE shop_items (
+        id          INTEGER PRIMARY KEY,
+        sku         TEXT NOT NULL UNIQUE,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        kind        TEXT NOT NULL,
+        cost        INTEGER NOT NULL,
+        stock       INTEGER,
+        sold        INTEGER NOT NULL DEFAULT 0,
+        payload     TEXT NOT NULL DEFAULT '',
+        active      INTEGER NOT NULL DEFAULT 1,
+        position    INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE user_items (
+        id         INTEGER PRIMARY KEY,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_id    INTEGER NOT NULL REFERENCES shop_items(id) ON DELETE CASCADE,
+        used       INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_user_items ON user_items(user_id, used);
+    `,
+  },
+  {
+    name: '006_chat',
+    up: `
+      CREATE TABLE messages (
+        id        INTEGER PRIMARY KEY,
+        room      TEXT NOT NULL DEFAULT 'lobby',
+        user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        nickname  TEXT NOT NULL,
+        kind      TEXT NOT NULL DEFAULT 'chat',
+        body      TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_messages_room ON messages(room, id DESC);
+    `,
+  },
+  {
+    name: '007_community',
+    up: `
+      ALTER TABLE users ADD COLUMN frame TEXT NOT NULL DEFAULT '';
+      ALTER TABLE users ADD COLUMN badges TEXT NOT NULL DEFAULT '';
+
+      CREATE TABLE subscribers (
+        id         INTEGER PRIMARY KEY,
+        email      TEXT NOT NULL UNIQUE,
+        active     INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
     `,
   },
 ];
