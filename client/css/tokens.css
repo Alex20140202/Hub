@@ -1,0 +1,115 @@
+/* 设计令牌：颜色、间距、圆角、阴影、层级。明暗主题通过 html[data-theme] 切换。 */
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --step--1: clamp(0.78rem, 0.76rem + 0.1vw, 0.84rem);
+  --step-0: clamp(0.92rem, 0.89rem + 0.14vw, 1rem);
+  --step-1: clamp(1.1rem, 1.03rem + 0.3vw, 1.28rem);
+  --step-2: clamp(1.35rem, 1.2rem + 0.7vw, 1.72rem);
+  --step-3: clamp(1.7rem, 1.4rem + 1.4vw, 2.4rem);
+
+  --sp-1: 0.25rem;
+  --sp-2: 0.5rem;
+  --sp-3: 0.75rem;
+  --sp-4: 1rem;
+  --sp-5: 1.5rem;
+  --sp-6: 2rem;
+  --sp-7: 3rem;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-full: 999px;
+
+  --sidebar-w: 248px;
+  --topbar-h: 62px;
+  --maxw: 1240px;
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* 主题色（由 data-accent 覆盖） */
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: color-mix(in oklab, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in oklab, var(--accent) 32%, transparent);
+}
+
+html[data-accent='emerald'] { --accent: #059669; --accent-fg: #ffffff; }
+html[data-accent='amber']   { --accent: #d97706; --accent-fg: #ffffff; }
+html[data-accent='rose']    { --accent: #e11d48; --accent-fg: #ffffff; }
+html[data-accent='cyan']    { --accent: #0891b2; --accent-fg: #ffffff; }
+html[data-accent='violet']  { --accent: #7c3aed; --accent-fg: #ffffff; }
+
+/* ------------------------------- 亮色主题 ------------------------------- */
+html[data-theme='light'] {
+  --bg: #f6f7fb;
+  --bg-elev: #ffffff;
+  --bg-sunken: #eef0f6;
+  --surface: #ffffff;
+  --surface-2: #f9fafc;
+  --line: #e3e6ef;
+  --line-soft: #edf0f6;
+  --text: #14161d;
+  --text-2: #4d5468;
+  --text-3: #838ba3;
+  --ok: #059669;
+  --warn: #d97706;
+  --danger: #e11d48;
+  --shadow-sm: 0 1px 2px rgb(16 20 40 / 0.05);
+  --shadow: 0 6px 24px -8px rgb(16 20 40 / 0.14), 0 2px 6px -2px rgb(16 20 40 / 0.06);
+  --shadow-lg: 0 24px 60px -18px rgb(16 20 40 / 0.26);
+  color-scheme: light;
+}
+
+/* ------------------------------- 暗色主题 ------------------------------- */
+html[data-theme='dark'] {
+  --bg: #0c0e14;
+  --bg-elev: #12151e;
+  --bg-sunken: #0a0c11;
+  --surface: #151926;
+  --surface-2: #1a1f2e;
+  --line: #262c3d;
+  --line-soft: #1e2431;
+  --text: #e9ecf5;
+  --text-2: #a3abc2;
+  --text-3: #6f7793;
+  --ok: #34d399;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow: 0 8px 28px -10px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+  --shadow-lg: 0 28px 70px -20px rgb(0 0 0 / 0.75);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme='auto'] {
+    --bg: #0c0e14;
+    --bg-elev: #12151e;
+    --bg-sunken: #0a0c11;
+    --surface: #151926;
+    --surface-2: #1a1f2e;
+    --line: #262c3d;
+    --line-soft: #1e2431;
+    --text: #e9ecf5;
+    --text-2: #a3abc2;
+    --text-3: #6f7793;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #fb7185;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow: 0 8px 28px -10px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 28px 70px -20px rgb(0 0 0 / 0.75);
+    color-scheme: dark;
+  }
+}
+
+/* 卡片色调（笔记颜色标记） */
+.tone-indigo  { --tone: #4f46e5; }
+.tone-emerald { --tone: #059669; }
+.tone-cyan    { --tone: #0891b2; }
+.tone-amber   { --tone: #d97706; }
+.tone-rose    { --tone: #e11d48; }
+.tone-slate   { --tone: #64748b; }

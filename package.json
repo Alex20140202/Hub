@@ -1,0 +1,27 @@
+{
+  "name": "hub",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Hub — Node.js 双端超级中心（SSR + 客户端路由）：仪表盘、笔记、待办、书签、文件、搜索，零第三方依赖。",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "prestart": "node scripts/build.js",
+    "start": "node server/index.js",
+    "dev": "node scripts/build.js && node --watch server/index.js",
+    "test": "node scripts/smoke.js",
+    "reset": "node scripts/reset.js",
+    "seed": "node scripts/reset.js --seed-only"
+  },
+  "keywords": [
+    "nodejs",
+    "sqlite",
+    "ssr",
+    "dashboard",
+    "zero-dependency"
+  ],
+  "license": "MIT"
+}

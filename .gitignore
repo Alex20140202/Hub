@@ -1,6 +1,6 @@
 node_modules/
 data/
-public/uploads/
+public/assets/
 .env
 .DS_Store
 *.log
