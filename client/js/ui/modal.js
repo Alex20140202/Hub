@@ -7,7 +7,7 @@ let currentOnClose = null;
  * 打开模态框。build(api) 需返回 { title, body, footer } 或 HTMLElement。
  * api 提供 close()、submit()，并处理 Esc / 遮罩点击 / 焦点陷阱。
  */
-export function openModal({ title, build, width }) {
+export function openModal({ title, build, width, className = '' }) {
   closeModal();
 
   const host = $('#modal-host');
@@ -15,7 +15,7 @@ export function openModal({ title, build, width }) {
 
   const backdrop = el('div', { class: 'modal-backdrop' });
   const panel = el('div', {
-    class: 'modal',
+    class: `modal${className ? ` ${className}` : ''}`,
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': title,

@@ -1006,6 +1006,18 @@ async function runSuite(base, workDir) {
   const apiSrc = await readFile(path.join(rootDir, 'public', 'assets', 'lib', 'api.js'), 'utf8');
 
   check('存在 refreshView 模块', viewJs.includes('export async function refreshView'));
+
+  // 聊天窗口必须是「固定高度 + 内部滚动」，否则消息一多页面就会被撑长
+  const cssSrc = await readFile(path.join(rootDir, 'public', 'assets', 'app.css'), 'utf8');
+  check('聊天布局有确定高度', /\.chat-layout\{[^}]*height:\s*clamp\(/.test(cssSrc), '未找到 .chat-layout 的固定高度');
+  check('消息区可内部滚动', /\.chat-log\{[^}]*overflow-y:auto/.test(cssSrc), '.chat-log 缺少 overflow-y:auto');
+  check('消息区 flex-basis 为 0', /\.chat-log\{[^}]*flex:\s*1 1 0/.test(cssSrc), '缺 flex:1 1 0 会被内容撑开');
+  check('消息区允许收缩', /\.chat-log\{[^}]*min-height:\s*0/.test(cssSrc), '缺 min-height:0 无法收缩');
+  check('侧栏列表可内部滚动', /\.room-list\{[^}]*min-height:\s*0/.test(cssSrc) && /\.member-list\{[^}]*min-height:\s*0/.test(cssSrc));
+  // 主规则必须同时具备 flex 收缩 + min-height:0 + 滚动，三者缺一就会被内容撑开
+  check('.chat-log 主规则完整', /\.chat-log\{[^}]*flex:1 1 0[^}]*min-height:0[^}]*overflow-y:auto/.test(cssSrc));
+  check('没有残留的死高度规则', !/\.chat-log\{[^}]*height:4?6dvh/.test(cssSrc), '旧布局残留的高度规则');
+  check('聊天容器锁高', /\.chat-layout\{[^}]*overflow:hidden/.test(cssSrc) || /\.chat-layout \.card\{[^}]*overflow:hidden/.test(cssSrc));
   check('片段请求禁用缓存', apiSrc.includes("cache: 'no-store'"));
   check('refreshView 保留 main 外壳', viewJs.includes('host.replaceChildren(...holder.childNodes)'));
   check('navigate 也保留 main 外壳', mainSrc.includes('host.replaceChildren(...holder.childNodes)'));
@@ -1019,9 +1031,22 @@ async function runSuite(base, workDir) {
     check(`${name} 提交后刷新视图`, /refreshView|onUploaded/.test(body), body.slice(0, 60).replace(/\s+/g, ' '));
   }
 
+  // ACTIONS 里出现重复键会被后者静默覆盖，前面的处理器变成死代码
+  const actionsStart = mainSrc.indexOf('const ACTIONS = {');
+  const actionsEnd = mainSrc.indexOf('\n};', actionsStart);
+  check('ACTIONS 块定位成功', actionsEnd > actionsStart);
+  const actionsBlock = mainSrc.slice(actionsStart, actionsEnd);
+  const actionKeys = [...actionsBlock.matchAll(/^  '?([a-z][a-zA-Z-]*)'?\s*:/gm)].map((m) => m[1]);
+  const duplicated = [...new Set(actionKeys.filter((key, i) => actionKeys.indexOf(key) !== i))];
+  check('ACTIONS 无重复键', duplicated.length === 0, `重复: ${duplicated.join(', ')}`);
+
+  // 表单处理器同样查一遍重复键
+  const formsStart2 = mainSrc.indexOf('const FORMS = {');
+  const formKeys = [...mainSrc.slice(formsStart2, mainSrc.indexOf('\n};', formsStart2)).matchAll(/^  ([a-z][a-zA-Z]*):/gm)].map((m) => m[1]);
+  check('FORMS 无重复键', new Set(formKeys).size === formKeys.length, `共 ${formKeys.length} 项`);
+
   // 每个「删除 / 切换」动作成功后都要刷新
-  const actionNames = ['delete-note', 'delete-link', 'delete-file', 'delete-short', 'delete-user', 'clear-completed', 'toggle-short', 'checkin', 'redeem', 'pin-message', 'unpin', 'toggle-mute'];
-  for (const name of actionNames) {
+  for (const name of ['delete-note', 'delete-link', 'delete-file', 'delete-short', 'delete-user', 'clear-completed', 'toggle-short', 'checkin', 'redeem', 'pin-message', 'unpin', 'toggle-mute']) {
     // ACTIONS 里的 key 有的带引号有的不带，两种写法都要能定位
     const start = Math.max(
       mainSrc.indexOf(`'${name}':`),
@@ -1050,12 +1075,7 @@ async function runSuite(base, workDir) {
   }
   check('页面渲染出了交互元素', rendered.size > 0, `未找到 data-action`);
 
-  const clientJs = await readFile(path.join(rootDir, 'public', 'assets', 'main.js'), 'utf8');
-  const actionsStart = clientJs.indexOf('const ACTIONS = {');
-  const actionsEnd = clientJs.indexOf('\n};', actionsStart);
-  const handled = new Set(
-    [...clientJs.slice(actionsStart, actionsEnd).matchAll(/^\s{2}'?([a-z][a-z-]*)'?\s*:/gm)].map((match) => match[1]),
-  );
+  const handled = new Set(actionKeys);
   const orphanActions = [...rendered].filter((name) => !handled.has(name));
   check('所有页面按钮都有客户端处理器', orphanActions.length === 0, `未实现：${orphanActions.join(', ')}`);
 
@@ -1064,11 +1084,7 @@ async function runSuite(base, workDir) {
     const html = await (await contractUser.raw('GET', page)).text();
     for (const match of html.matchAll(/data-form="([a-z]+)"/g)) formTypes.add(match[1]);
   }
-  const formsStart = clientJs.indexOf('const FORMS = {');
-  const formsEnd = clientJs.indexOf('\n};', formsStart);
-  const bound = new Set(
-    [...clientJs.slice(formsStart, formsEnd).matchAll(/^\s{2}([a-z][a-zA-Z]*):/gm)].map((match) => match[1]),
-  );
+  const bound = new Set(formKeys);
   const orphanForms = [...formTypes].filter((name) => !bound.has(name));
   check('所有页面表单都有提交处理', orphanForms.length === 0, `未实现：${orphanForms.join(', ')}`);
 

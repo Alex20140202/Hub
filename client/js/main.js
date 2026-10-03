@@ -233,9 +233,10 @@ const ACTIONS = {
       toastErr(error.message);
     }
   },
-  'open-search': () => {
+  // 注意键名：不能叫 open-search，否则会覆盖命令面板的同名动作
+  'chat-search': () => {
     const form = $('[data-chat-search]');
-    if (!form) return;
+    if (!form) return toastErr('当前房间不支持搜索');
     form.hidden = false;
     form.querySelector('input').focus();
   },

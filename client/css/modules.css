@@ -333,7 +333,6 @@
 @media (max-width: 900px) {
   .chat { grid-template-columns: minmax(0, 1fr); }
   .chat-side { border-left: none; border-top: 1px solid var(--line); }
-  .chat-log { height: 46dvh; }
 }
 
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
@@ -362,6 +361,8 @@
   /* 关键：给整块一个确定高度，滚动只发生在各栏内部。
      否则父容器高度由内容决定，消息越多页面越高。 */
   height: clamp(440px, 68dvh, 760px);
+  /* 「回到最新」浮标以本容器为定位基准，否则会掉到页面最底部 */
+  position: relative;
 }
 .chat-layout .card { padding: 0; overflow: hidden; min-height: 0; }
 

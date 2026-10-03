@@ -125,7 +125,7 @@ export function chatPage(ctx) {
           <p class="hint" data-room-sub>${escapeHtml(active.topic || (active.type === 'dm' ? '私聊会话' : `${active.memberCount} 位成员`))}</p>
         </div>
         <div class="row-actions">
-          <button class="btn btn-ghost" type="button" data-action="open-search" title="搜索本房间消息">搜索</button>
+          <button class="btn btn-ghost" type="button" data-action="chat-search" title="搜索本房间消息">搜索</button>
           ${
             user && active.code !== 'lobby'
               ? `<button class="btn btn-ghost${muted ? ' is-on' : ''}" type="button" data-action="toggle-mute" data-room="${attr(active.code)}" title="${muted ? '取消免打扰' : '免打扰'}">${muted ? '🔕' : '🔔'}</button>

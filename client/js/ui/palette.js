@@ -1,14 +1,17 @@
 import { el } from '../lib/dom.js';
-import { openModal, closeModal } from './modal.js';
+import { toast } from './toast.js';
+import { openModal } from './modal.js';
 import { api } from '../lib/api.js';
 
 const NAV_ITEMS = [
   { label: '仪表盘', href: '/', key: 'G D' },
-  { label: '笔记', href: '/notes', key: 'G N' },
+  { label: '博客', href: '/blog', key: 'G N' },
   { label: '待办', href: '/todos', key: 'G T' },
   { label: '书签', href: '/links', key: 'G L' },
   { label: '文件', href: '/files', key: 'G F' },
-  { label: '搜索', href: '/search', key: '/' },
+  { label: '积分中心', href: '/points', key: 'G P' },
+  { label: '聊天室', href: '/chat', key: 'G C' },
+  { label: '搜索页', href: '/search', key: '/' },
   { label: '设置', href: '/settings', key: 'G S' },
 ];
 
@@ -16,11 +19,27 @@ const COMMANDS = [
   { label: '新建笔记', hint: 'N', run: () => location.assign('/notes?new=1') },
   { label: '新建待办', hint: 'T', run: () => location.assign('/todos?new=1') },
   { label: '新建书签', hint: 'B', run: () => location.assign('/links?new=1') },
-  { label: '切换明暗主题', hint: '⇧D', run: () => document.dispatchEvent(new CustomEvent('hub:toggle-theme')) },
+  { label: '新建文章', hint: 'P', run: () => location.assign('/blog/new') },
+  { label: '创建短链', hint: 'L', run: () => location.assign('/short?new=1') },
   { label: '上传文件', hint: 'U', run: () => location.assign('/files?upload=1') },
+  { label: '切换明暗主题', hint: '⇧D', run: () => document.dispatchEvent(new CustomEvent('hub:toggle-theme')) },
 ];
 
-/** ⌘K / Ctrl+K 命令面板：导航 + 指令 + 站内搜索。 */
+// 与 server/models/search.js 返回的分组类型对应
+const SCOPES = [
+  { type: 'note', label: '笔记' },
+  { type: 'todo', label: '待办' },
+  { type: 'link', label: '书签' },
+  { type: 'file', label: '文件' },
+];
+
+/**
+ * ⌘K / Ctrl+K / `/` 命令面板。
+ *
+ * 刻意复用 modal.js 的 openModal：Esc、遮罩点击、焦点陷阱、body 滚动锁
+ * 都由同一套生命周期处理。之前这里自己往 #modal-host 塞 DOM，
+ * 关闭时调用的 closeModal() 找不到对应实例，导致面板退不出去。
+ */
 export function openPalette() {
   const results = el('div', { class: 'palette-list' });
   const input = el('input', {
@@ -30,11 +49,10 @@ export function openPalette() {
     'aria-label': '命令面板',
     autocomplete: 'off',
   });
-  const panel = el('div', { class: 'palette' }, [input, results]);
-  const wrap = el('div', { class: 'modal' }, [panel]);
 
   let items = [];
   let active = 0;
+  let searchTimer = null;
 
   const render = () => {
     results.replaceChildren();
@@ -42,21 +60,31 @@ export function openPalette() {
       results.append(el('p', { class: 'hint', style: 'padding:16px' }, ['没有匹配项']));
       return;
     }
+
+    let lastGroup = '';
     items.forEach((item, index) => {
-      const node = el(
-        'button',
-        {
-          class: `palette-item${index === active ? ' is-active' : ''}`,
-          type: 'button',
-          onClick: () => choose(item),
-          onMouseenter: () => {
-            active = index;
-            render();
+      if (item.group && item.group !== lastGroup) {
+        lastGroup = item.group;
+        results.append(el('div', { class: 'palette-group' }, [item.group]));
+      }
+      results.append(
+        el(
+          'button',
+          {
+            class: `palette-item${index === active ? ' is-active' : ''}`,
+            type: 'button',
+            onClick: () => choose(item),
+            onMouseenter: () => {
+              active = index;
+              render();
+            },
           },
-        },
-        [item.icon ? el('span', {}, [item.icon]) : null, el('span', {}, [item.label]), item.hint ? el('kbd', {}, [item.hint]) : null],
+          [
+            el('span', {}, [item.label]),
+            item.hint ? el('kbd', {}, [item.hint]) : null,
+          ],
+        ),
       );
-      results.append(node);
     });
   };
 
@@ -68,49 +96,44 @@ export function openPalette() {
   };
 
   const choose = (item) => {
-    closeModal();
+    if (!item || item.group) return;
+    close();
     if (item.href) location.assign(item.href);
     else item.run?.();
   };
 
   const base = () => [
-    { label: '页面', items: NAV_ITEMS.map((entry) => ({ label: entry.label, href: entry.href, hint: entry.key })) },
-    { label: '指令', items: COMMANDS },
+    { group: '页面' },
+    ...NAV_ITEMS.map((entry) => ({ label: entry.label, href: entry.href, hint: entry.key })),
+    { group: '指令' },
+    ...COMMANDS.map((entry) => ({ label: entry.label, hint: entry.hint, run: entry.run })),
   ];
 
-  const searchLocal = (term) => {
-    const groups = base();
-    const matched = groups
-      .map((group) => ({ label: group.label, items: group.items.filter((item) => item.label.includes(term)) }))
-      .filter((group) => group.items.length);
-    return matched.flatMap((group) => [{ group: group.label }, ...group.items]);
-  };
+  const local = (term) =>
+    base().filter((entry) => entry.group || entry.label.toLowerCase().includes(term.toLowerCase()));
 
-  let searchTimer;
   input.addEventListener('input', () => {
     const term = input.value.trim();
     if (!term) {
-      items = searchLocal('');
+      items = local('');
       active = 0;
       return render();
     }
+
+    items = local(term).filter((entry) => !entry.group);
+    active = 0;
+    render();
+
     clearTimeout(searchTimer);
     searchTimer = setTimeout(async () => {
-      items = searchLocal(term).filter((entry) => entry.label);
-      active = 0;
-      render();
       try {
-        const result = await api.get(`/api/search?q=${encodeURIComponent(term)}`);
-        const remote = result.groups
-          .flatMap((group) => group.items)
-          .slice(0, 8)
-          .map((item) => ({ label: item.title || '(无标题)', href: item.href, hint: groupLabel(result.groups, item) }));
-        if (remote.length) {
-          items.push({ group: '内容' }, ...remote);
-          render();
-        }
+        const result = await api.get(`/api/search?q=${encodeURIComponent(term)}&scope=all`);
+        const hits = result.groups.flatMap((group) => group.items).slice(0, 8);
+        if (!hits.length) return;
+        items = [...items, { group: '内容' }, ...hits.map((item) => ({ label: item.title || '(无标题)', href: item.href, hint: groupName(result.groups, item) }))];
+        render();
       } catch {
-        /* 搜索失败时静默，仅展示本地匹配 */
+        /* 搜索失败时保持本地匹配即可 */
       }
     }, 220);
   });
@@ -124,38 +147,38 @@ export function openPalette() {
       move(-1);
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      if (items[active] && items[active].label) choose(items[active]);
+      choose(items[active]);
+    } else if (event.key === 'Escape') {
+      // 交给 modal.js 统一处理，这里只阻止冒泡避免重复触发
+      event.preventDefault();
     }
   });
 
-  items = searchLocal('');
+  items = local('');
   render();
 
-  const host = document.getElementById('modal-host');
-  if (!host) return;
-  const backdrop = el('div', { class: 'modal-backdrop' });
-  host.replaceChildren(backdrop, wrap);
-  host.hidden = false;
-  document.body.style.overflow = 'hidden';
-  input.focus();
+  let close = () => {};
+  openModal({
+    className: 'palette',
+    width: 560,
+    build: ({ close: closeModal, body }) => {
+      close = closeModal;
+      body.classList.add('palette-body');
+      body.append(input, results);
+      input.focus();
+      return {};
+    },
+  });
 
-  const cleanup = () => {
-    document.removeEventListener('keydown', onKey, true);
-    document.body.style.removeProperty('overflow');
-    closeModal();
-  };
-  const onKey = (event) => {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      cleanup();
-    }
-  };
-  backdrop.addEventListener('click', cleanup);
-  document.addEventListener('keydown', onKey, true);
+  return { close: () => close() };
 }
 
-const groupLabel = (groups, item) => groups.find((group) => group.items.includes(item))?.type ?? '';
+const groupName = (groups, item) => {
+  const group = groups.find((entry) => entry.items.includes(item));
+  return SCOPES.find((scope) => scope.type === group?.type)?.label ?? '';
+};
 
+/** 全局快捷键注册。 */
 export const installPalette = () => {
   document.addEventListener('keydown', (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
