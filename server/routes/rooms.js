@@ -38,8 +38,9 @@ export function registerRooms(router) {
   router.get('/api/rooms/:code/messages', async (ctx) => {
     const code = ctx.params.code;
     assertVisible(code, ctx.user);
+    const limit = int(ctx.query.limit, '数量', { min: 1, max: 200, fallback: 50 });
     const items = chat.listMessages(code, {
-      limit: int(ctx.query.limit, '数量', { min: 1, max: 200, fallback: 50 }),
+      limit,
       beforeId: ctx.query.before ? int(ctx.query.before, '游标', { min: 1 }) : null,
       afterId: ctx.query.after ? int(ctx.query.after, '游标', { min: 1 }) : null,
     });

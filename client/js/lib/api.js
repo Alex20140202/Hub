@@ -115,7 +115,16 @@ export const api = {
   rooms: {
     mine: () => request('GET', '/api/rooms'),
     discover: () => request('GET', '/api/rooms/discover'),
-    messages: (code, limit = 50) => request('GET', `/api/rooms/${encodeURIComponent(code)}/messages?limit=${limit}`),
+    /** limit 可以传数字，也可以传 { limit, before, after }。 */
+    messages: (code, options = 50) => {
+      const params = new URLSearchParams();
+      const opt = typeof options === 'number' ? { limit: options } : options;
+      if (opt.limit) params.set('limit', String(opt.limit));
+      if (opt.before) params.set('before', String(opt.before));
+      if (opt.after) params.set('after', String(opt.after));
+      const query = params.toString();
+      return request('GET', `/api/rooms/${encodeURIComponent(code)}/messages${query ? `?${query}` : ''}`);
+    },
     members: (code) => request('GET', `/api/rooms/${encodeURIComponent(code)}/members`),
     create: (payload) => request('POST', '/api/rooms', payload),
     update: (code, payload) => request('PATCH', `/api/rooms/${encodeURIComponent(code)}`, payload),

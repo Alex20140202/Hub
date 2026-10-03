@@ -918,6 +918,59 @@ async function runSuite(base, workDir) {
   eq('开启免打扰', mute.muted, true);
   const mineRooms = (await chatA.get('/api/rooms')).body;
   check('静音列表包含该房间', mineRooms.muted?.includes(code2), JSON.stringify(mineRooms.muted));
+
+  /* --------------------------- 消息历史分页 --------------------------- */
+  // 翻页路径（?before=）首屏不会经过，必须单独覆盖。
+  // 加入/退群会产生系统消息，用它把房间消息量堆到能真正翻页。
+  // 用普通成员进出（群主不能退群），每次都会留下一条系统消息
+  for (let i = 0; i < 8; i += 1) {
+    const out = await chatA.post(`/api/rooms/${code2}/leave`);
+    eq(i === 0 ? '成员可退群以制造历史' : '', out.status, 200);
+    await chatA.post(`/api/rooms/${code2}/join`);
+  }
+
+  const all0 = (await chatA.get(`/api/rooms/${code2}/messages?limit=8`)).body;
+  eq('首屏按 limit 截断', all0.items.length, 8);
+  eq('装不下时 hasMore 为 true', all0.hasMore, true);
+  const asc0 = all0.items.map((m) => m.id);
+  check('首屏按时间升序', asc0.every((v, i) => i === 0 || v > asc0[i - 1]));
+
+  const cursor = asc0.at(-1);
+  const page2 = (await chatA.get(`/api/rooms/${code2}/messages?limit=8&before=${cursor}`)).body;
+  check('翻页返回满页', page2.items.length === 8, `${page2.items.length} 条`);
+  check('翻页内容严格早于游标', page2.items.every((m) => m.id < cursor), `游标 ${cursor}`);
+  const p2ids = page2.items.map((m) => m.id);
+  check('翻页结果按时间升序', p2ids.every((v, i) => i === 0 || v > p2ids[i - 1]));
+  check('翻页与首屏无重叠', p2ids.every((id) => id < cursor), `越界: ${p2ids.filter((id) => id >= cursor)}`);
+  check('翻页首条紧邻游标', p2ids.at(-1) === cursor - 1, `${p2ids.at(-1)} vs ${cursor - 1}`);
+
+  // 一路翻到最早，确认能收敛
+  let guard = 0;
+  let walk = cursor;
+  let walked = 0;
+  let reachedStart = false;
+  while (guard < 40) {
+    const page = (await chatA.get(`/api/rooms/${code2}/messages?limit=8&before=${walk}`)).body;
+    walked += page.items.length;
+    guard += 1;
+    if (!page.items.length || page.items[0].id === page.oldestId) {
+      reachedStart = true;
+      break;
+    }
+    walk = page.items[0].id;
+  }
+  check('翻页能一路收敛到最早', reachedStart, `迭代 ${guard} 次，共 ${walked} 条`);
+
+  const badCursor = await chatA.get(`/api/rooms/${code2}/messages?before=abc`);
+  eq('非法游标被拒绝', badCursor.status, 400);
+  const badLimit = await chatA.get(`/api/rooms/${code2}/messages?limit=9999`);
+  eq('超出上限的 limit 被拒绝', badLimit.status, 400);
+  const badBoth = await chatA.get(`/api/rooms/${code2}/messages?limit=0&before=5`);
+  eq('limit=0 被拒绝', badBoth.status, 400);
+  const beforeOldest = await chatA.get(`/api/rooms/${code2}/messages?before=1`);
+  eq('游标早于全部消息时返回空', beforeOldest.body?.items?.length, 0);
+  eq('此时 hasMore 为 false', beforeOldest.body?.hasMore, false);
+
   eq('关闭免打扰', (await chatA.post(`/api/rooms/${code2}/mute`, { muted: false })).body.muted, false);
   const muteLobby = await chatA.post('/api/rooms/lobby/mute', { muted: true });
   eq('大厅不支持免打扰', muteLobby.status, 400);

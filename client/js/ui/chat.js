@@ -22,11 +22,54 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
   const authenticated = log.dataset.auth === '1';
   const root = log.closest('.chat-layout') ?? document;
   let loadingOlder = false;
+  let scrollEndTimer = null;
 
+  /**
+   * 滚到最新一条。
+   * 单次赋值会停在错误位置——执行时字体与回流尚未稳定，容器高度还会继续变，
+   * 所以连续几帧收敛，再补一次延迟兜底。
+   */
   const scrollToEnd = () => {
-    log.scrollTop = log.scrollHeight;
+    let frames = 4;
+    const step = () => {
+      log.scrollTop = log.scrollHeight;
+      frames -= 1;
+      if (frames > 0) requestAnimationFrame(step);
+    };
+    step();
+    clearTimeout(scrollEndTimer);
+    scrollEndTimer = setTimeout(() => {
+      log.scrollTop = log.scrollHeight;
+    }, 180);
   };
   const atBottom = () => log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+
+  // 用户往上翻时不要把他拽回底部；改为显示「N 条新消息」提示
+  let sticky = true;
+  let pending = 0;
+  // 注意：这里只用自己的监听，不要再加 data-action，
+  // 否则全局委托里再 click() 一次会变成无限递归
+  const jumpBtn = el('button', { class: 'chat-jump', type: 'button', hidden: true }, ['↓ 回到最新']);
+  root.append(jumpBtn);
+
+  const syncSticky = () => {
+    sticky = atBottom();
+    if (sticky) {
+      pending = 0;
+      jumpBtn.hidden = true;
+    }
+  };
+
+  const markPending = () => {
+    pending += 1;
+    jumpBtn.textContent = `↓ ${pending} 条新消息`;
+    jumpBtn.hidden = false;
+  };
+
+  jumpBtn.addEventListener('click', () => {
+    scrollToEnd();
+    syncSticky();
+  });
 
   const setStatus = (text, tone = '') => {
     if (!status) return;
@@ -149,6 +192,7 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
   const append = (message) => {
     log.querySelector('.chat-hint')?.remove();
     const stick = atBottom();
+    if (stick) syncSticky();
     // 跨天时补日期分隔线
     const rows = [...log.querySelectorAll('.chat-row, .chat-action, .chat-system')];
     const lastNode = rows.at(-1);
@@ -165,7 +209,8 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
       }
     }
     log.append(bubble(message));
-    if (stick) scrollToEnd();
+    if (stick && sticky) scrollToEnd();
+    else markPending();
   };
 
   const renderAll = (messages, { hasMore = false } = {}) => {
@@ -187,6 +232,9 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
       return;
     }
     log.append(...withDividers(messages));
+    sticky = true;
+    pending = 0;
+    jumpBtn.hidden = true;
     scrollToEnd();
   };
 
@@ -363,6 +411,10 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
       return false;
     }
     socket.send(JSON.stringify({ type: 'chat', body }));
+    // 自己发的消息必须可见：即便往上翻过也要回到最新
+    sticky = true;
+    pending = 0;
+    jumpBtn.hidden = true;
     return true;
   }
 
@@ -435,6 +487,7 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
 
   // 滚到顶部时自动加载更早的消息
   log.addEventListener('scroll', () => {
+    syncSticky();
     if (log.scrollTop > 40 || loadingOlder) return;
     if (!log.dataset.oldest) return;
     loadingOlder = true;
@@ -475,6 +528,7 @@ export function createChat({ log, room, status, membersPanel, onRoomChange }) {
     log.dataset.oldest = items[0].id;
     // 保持视觉位置不跳
     log.scrollTop = log.scrollHeight - previousHeight;
+    syncSticky();
     if (!hasMore) {
       const done = el('p', { class: 'chat-end' }, ['已经是最早的消息了']);
       log.prepend(done);
