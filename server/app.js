@@ -12,6 +12,7 @@ import { registerNotes, registerTodos, registerLinks, registerFiles } from './ro
 import { registerDashboard, registerPublic, registerAdmin } from './routes/dashboard.js';
 import { registerBlog, registerComments, registerTaxonomy, registerPoints, bindPush } from './routes/blog.js';
 import { registerShorts, registerRedirect, registerMisc } from './routes/shorts.js';
+import { registerRooms } from './routes/rooms.js';
 import { pushToRoom, broadcastSystem } from './ws/chat.js';
 import { renderPage } from './views/render.js';
 import { getSettings } from './models/stats.js';
@@ -62,6 +63,7 @@ registerComments(router);
 registerTaxonomy(router);
 registerPoints(router);
 registerShorts(router);
+registerRooms(router);
 registerRedirect(router);
 registerMisc(router);
 registerDashboard(router);

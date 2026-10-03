@@ -11,6 +11,7 @@ import * as posts from '../models/posts.js';
 import * as shorts from '../models/shorts.js';
 import * as points from '../models/points.js';
 import * as chat from '../models/chat.js';
+import * as rooms from '../models/rooms.js';
 import * as users from '../models/users.js';
 import { get } from '../db.js';
 import { getSettings } from '../models/stats.js';
@@ -18,6 +19,60 @@ import { notFound, forbidden } from '../lib/http-error.js';
 import { config } from '../config.js';
 import { chatStats } from '../ws/chat.js';
 import { outline } from './markdown.js';
+
+/**
+ * 聊天室页面数据：房间列表（需登录）、发现页、当前房间与成员。
+ * 未登录时只给大厅，避免把别人的私聊列表渲染出去。
+ */
+async function chatData(ctx) {
+  const user = ctx.user;
+  const requested = ctx.query.room || 'lobby';
+  const mine = user ? rooms.myRooms(user.id) : { groups: [], dms: [] };
+  // 已加入的群也列出来，靠 joined 标记区分，这样「已加入」状态是可见的
+  const discover = rooms.discoverGroups(user?.id ?? 0);
+
+  const LOBBY_ROOM = { code: 'lobby', name: '公共大厅', type: 'lobby', topic: '所有人可见', memberCount: 0, avatarHue: 210 };
+  let active = requested === 'lobby' ? LOBBY_ROOM : rooms.getRoomByCode(requested);
+  // 显式指定了房间却找不到（或无权访问）→ 404，不要静默回大厅，让人以为进成功了
+  if (!active) throw notFound('房间不存在');
+  const access = rooms.accessOf(active.code, user?.id ?? null);
+  if (access !== true) throw notFound('房间不存在');
+
+  // 私聊要把「对方是谁」补上，列表和标题都要用
+  if (active.type === 'dm') {
+    const peerId = rooms.peerInRoom(active.code, user?.id ?? 0);
+    active.peer = peerId ? users.findById(peerId) : null;
+  }
+  const myRole = user ? rooms.roleOf(active.code, user.id) : null;
+  const members = active.code === 'lobby' ? [] : rooms.listMembers(active.code);
+  if (user) rooms.markRead(active.code, user.id);
+
+  const messages = chat.listMessages(active.code, { limit: 60 });
+  const oldestId = chat.oldestIdIn(active.code);
+
+  return {
+    rooms: mine,
+    peers: user ? rooms.dmPeers(user.id) : [],
+    discover,
+    active,
+    myRole,
+    members,
+    messages: messages.map((message) => ({
+      ...message,
+      // 已读回执只对成员可见
+      reads: active.code === 'lobby' || !user ? [] : chat.readersOf(message.id),
+    })),
+    pinned: chat.pinnedMessage(active.code),
+    muted: user ? rooms.isMuted(active.code, user.id) : false,
+    oldestId,
+    // 一屏没装下全部消息时才允许「加载更早」
+    hasMore: chat.messageCount(active.code) > messages.length,
+    online: chatStats().online,
+    me: user?.nickname ?? '访客',
+  };
+}
+
+const BADGE_LABELS = { pioneer: '开拓者勋章', collector: '收藏家勋章', builder: '建设者勋章', scholar: '学者勋章' };
 
 const paging = (query) => ({
   page: Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1),
@@ -75,12 +130,11 @@ const loaders = {
   }),
 
   '/files': async (ctx) => {
-    const storage = files.storageStats(ctx.user.id);
     return {
       ...ctx,
       data: {
         items: files.listFiles(ctx.user.id, { q: ctx.query.q ?? '', folder: ctx.query.folder ?? '' }),
-        storage: { ...storage, quota: config.maxUploadBytes * 200 },
+        storage: files.storageStats(ctx.user.id),
       },
     };
   },
@@ -99,16 +153,19 @@ const loaders = {
     },
   }),
 
-  '/chat': async (ctx) => ({
-    ...ctx,
-    data: { messages: chat.listMessages('lobby', { limit: 50 }), online: chatStats().online, me: ctx.user?.nickname ?? '访客' },
-  }),
+  '/chat': async (ctx) => ({ ...ctx, data: await chatData(ctx) }),
 
   '/search': async (ctx) => ({ ...ctx, data: {} }),
 
   '/settings': async (ctx) => ({
     ...ctx,
-    data: { user: ctx.user, sessions: users.listSessions(ctx.user.id), site: getSettings() },
+    data: {
+      user: ctx.user,
+      sessions: users.listSessions(ctx.user.id),
+      site: getSettings(),
+      badges: points.myItems(ctx.user.id).filter((item) => item.kind === 'badge' && !item.used).map((item) => BADGE_LABELS[item.payload] ?? item.name),
+      quota: files.quotaOf(ctx.user.id),
+    },
   }),
 
   '/admin': async (ctx) => {
@@ -246,10 +303,7 @@ const details = {
 
 const GUEST = {
   '/login': () => [pages.authPage({ mode: 'login', site: getSettings() }), '登录'],
-  '/chat': () => [
-    modules.chatPage({ user: null, query: {}, data: { messages: chat.listMessages('lobby', { limit: 50 }), online: chatStats().online, me: '访客' } }),
-    '聊天室',
-  ],
+  '/chat': (ctx) => [modules.chatPage({ ...ctx, data: ctx.data }), '聊天室'],
   '/register': () => [pages.authPage({ mode: 'register', site: getSettings() }), '注册'],
   '/blog': () => {
     const result = posts.listPosts({ size: 10, sort: 'recent' });
@@ -338,7 +392,9 @@ export async function renderPage({ pathname, user, query, params, sessionId, ass
       Object.assign(ctx, await guestHome(ctx));
       [html, title] = renderers['/'](ctx);
     } else if (GUEST[pathname]) {
-      [html, title] = GUEST[pathname]();
+      // 聊天室访客态也要一份数据，否则页面拿不到房间列表
+      if (pathname === '/chat') ctx.data = await chatData(ctx);
+      [html, title] = GUEST[pathname](ctx);
     } else if (pathname.startsWith('/blog/')) {
       const detail = matchDetail(pathname, details);
       if (detail) {

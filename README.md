@@ -1,6 +1,6 @@
 # Hub 超级中心
 
-> 用 **Node.js 双端** 写的全栈综合站点：博客、笔记、待办、书签、文件、短链、实时聊天室、积分商城、站内搜索与管理后台，全部跑在**一个进程**里，**零第三方依赖**（`node_modules` 是空的）。
+> 用 **Node.js 双端** 写的全栈综合站点：博客、笔记、待办、书签、文件、短链、**支持建群/拉人/私聊/传文件的实时聊天室**、积分商城、站内搜索与管理后台，全部跑在**一个进程**里，**零第三方依赖**（`node_modules` 是空的）。
 
 - 运行时：`node:http` + `node:sqlite` + `node:crypto`，外加**手写 RFC 6455 WebSocket**
 - 渲染：服务端输出完整 HTML（可被搜索引擎抓取），客户端用 History API 局部替换
@@ -50,10 +50,10 @@ npm run seed       # 仅在数据库为空时写入种子数据
 | 笔记 | `/notes` | 标签、颜色标记、置顶、搜索、详情页 |
 | 待办 | `/todos` | 优先级分组、截止日期、进度条、完成统计、批量清理、拖拽排序 |
 | 书签 | `/links` | 标签归类、标星、点击统计、搜索与排序 |
-| 文件 | `/files` | 拖拽上传、目录归档、用量统计、下载删除、**设为公开分享（`/d/:id`）** |
+| 文件 | `/files` | 拖拽上传、目录归档、用量统计（受商城扩容影响）、下载删除、设为公开分享（`/d/:id`） |
 | 短链 | `/short` | 自定义短码（冲突自动加后缀）、点击统计、停用/启用 |
-| 聊天室 | `/chat` | WebSocket 实时消息、在线人数、`/help` `/who` `/time` `/me` 指令、消息持久化 |
-| 积分中心 | `/points` | 每日签到、28 天签到日历、积分流水、排行榜、商城兑换（主题 / 头像框 / 勋章 / 存储 / 改名券） |
+| 聊天室 | `/chat` | 见下方「聊天室」章节：大厅 + 群聊 + 私聊、拉人踢人、**引用回复 / 群公告 / 房间搜索 / 已读回执 / 免打扰 / 历史分页**、文件传输、消息撤回 |
+| 积分中心 | `/points` | 每日签到、28 天签到日历、积分流水、排行榜、**29 件商城道具**（皮肤 / 头像框 / 称号 / 勋章 / 存储 / 一次性道具），兑换即生效 |
 | 搜索 | `/search` | 跨文章 / 笔记 / 待办 / 书签 / 文件聚合检索，可限定范围 |
 | 用户主页 | `/u/:username` | 他人资料、公开文章与统计 |
 | 设置 | `/settings` | 资料、密码、主题、登录设备管理、数据导出；管理员另有站点设置 |
@@ -61,6 +61,21 @@ npm run seed       # 仅在数据库为空时写入种子数据
 | 命令面板 | `⌘K` / `Ctrl+K` / `/` | 全站命令与内容搜索 |
 
 其它细节：明暗 / 跟随系统三态主题、6 套主题色、快捷键（`g`+字母 跳模块、`⌘N` 快速新建）、响应式布局、键盘可达（跳转链接、模态框焦点陷阱、`Esc` 关闭）、Toast 提示、乐观勾选、密码强度提示。
+
+---
+
+## 界面：Liquid Glass
+
+全站采用玻璃质感（Liquid Glass）语言，定义在 `client/css/glass.css`：
+
+- **玻璃层** = 半透明底 + `backdrop-filter: blur() saturate()` + 内侧镜面高光 + 分层投影
+- **边缘折射**：用 `padding: 1px` + `mask-composite: exclude` 抠出 1px 渐变描边，顶端更亮以模拟受光
+- **体积感**：卡片内叠一层柔光斑，`.stat` 叠彩色折射条
+- **背景光场**：`body` 上三段固定（`background-attachment: fixed`）的柔和光斑，给玻璃提供可折射的内容
+- **深度**：卡片 hover 上浮 + 阴影加深；模态框与 Toast 用更强模糊（40px）与更高不透明度
+- **动效**：入场用 `glass-in`（位移 + 缩放 + 模糊消散），顶栏有一道极轻的扫光
+- **可降级**：不支持 `backdrop-filter` 的浏览器自动退回实色；`prefers-reduced-motion` 下关闭动画
+- **双主题**：暗色下玻璃更通透、边缘高光更亮（`--glass-tint` 与 `--glass-edge` 分别调参）
 
 ---
 
@@ -80,6 +95,8 @@ npm run seed       # 仅在数据库为空时写入种子数据
 ```
 
 **服务端是页面标记的唯一来源。** 客户端不做二次渲染，只负责：拦截站内链接请求片段、提交表单与调接口、命令面板、主题切换、Toast 与模态框、WebSocket 收发。
+
+**任何写操作成功后都要重新拉取片段**（`client/js/lib/view.js` 的 `refreshView()`），由服务端重新渲染当前视图，而不是在客户端各处手动改 DOM——这是「服务端唯一渲染源」的关键一环，漏掉任何一处都会导致「操作成功但界面不动，必须刷新才看到」。冒烟测试里的「视图刷新契约」一节会逐个校验所有弹窗与删除/切换类动作都调用了它。
 
 这样避免了「同一份视图写两遍」的常见漂移。冒烟测试里有一条**双端契约检查**：页面上出现的每个 `data-action` / `data-form` 都必须有对应的客户端处理器 —— 改页面忘改 JS 会直接测试失败。
 
@@ -144,6 +161,25 @@ npm run seed       # 仅在数据库为空时写入种子数据
 
 `/api/notes` `/api/todos`（含 `reorder`、`clear-completed`）`/api/links`（含 `click`）`/api/files`（上传下载删除）
 
+### 聊天室
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/rooms` | 我加入的群 + 我的私聊线程（含未读数与最后一条消息） |
+| GET | `/api/rooms/discover` | 可加入的公开群（含是否已加入） |
+| GET | `/api/rooms/:code/messages`、`/members` | 房间历史 / 成员列表与我的角色 |
+| POST/PATCH/DELETE | `/api/rooms[/:code]` | 建群 / 改资料 / 解散（群主） |
+| POST | `/api/rooms/:code/join`、`/leave` | 加入 / 退出 |
+| POST/PATCH/DELETE | `/api/rooms/:code/members[/:userId]` | 拉人 / 改角色 / 踢人 |
+| POST | `/api/rooms/:code/read` | 标记已读 |
+| GET/POST | `/api/dms` | 可私聊用户与会话列表 / 发起私聊 |
+| GET | `/api/rooms/:code/search?q=` | 房间内消息搜索 |
+| POST/DELETE | `/api/rooms/:code/pin` | 置顶 / 取消置顶群公告 |
+| POST | `/api/rooms/:code/mute` | 免打扰开关 |
+| POST | `/api/rooms/:code/seen` | 上报已读回执 |
+| GET | `/api/messages/:id/reads` | 查询某条消息的已读名单 |
+| GET | `/api/attachments/:fileId` | 下载聊天附件（需为发件人或房间成员） |
+
 ### 短链 / 社区
 
 | 方法 | 路径 | 说明 |
@@ -167,14 +203,62 @@ npm run seed       # 仅在数据库为空时写入种子数据
 
 ---
 
-## WebSocket 协议
+## 聊天室
 
-连接 `ws://<host>/ws`，通过同源 Cookie 识别身份。`?room=<userId>` 进入自己的私房（仅本人）。
+一条 WebSocket 连接可以**同时订阅多个房间**，每个房间独立广播。
 
-**服务端 → 客户端**：`ready`（含历史消息与在线人数）、`presence`、`message`、`error`
-**客户端 → 服务端**：`{"type":"chat","body":"你好"}`
+| 能力 | 说明 |
+| --- | --- |
+| 公共大厅 | 所有人可见，游客可只读；`/help` `/who` `/time` `/me 动作` 指令 |
+| 群聊 | 创建、改名改简介、设管理员、踢人、退群、解散；人数上限；公开群可被「发现」并加入，私密群仅成员可见 |
+| 私聊 | 任意两位用户之间的独立会话，房间码为 `dm-<小 id>-<大 id>`，因此 A→B 与 B→A 落在同一房间；**第三方无法进入** |
+| 拉人 | 成员及以上权限可邀请用户进群，邀请与进群都会写入系统消息并实时广播 |
+| **引用回复** | 鼠标悬停消息点 ↩，输入框上方出现引用条；引用块会渲染被引消息的作者与摘要。**服务端校验引用必须同房间**，跨房间引用会被静默丢弃，避免私聊内容通过群聊泄露 |
+| **群公告** | 悬停消息点 📌 设为公告，同一房间只保留一条；公告常驻在聊天区顶部，可一键取消 |
+| **房间搜索** | 顶部「搜索」展开，只搜当前房间（不跨房间，避免泄露私聊）；结果可点击定位并高亮 |
+| **已读回执** | 进入房间自动上报最近消息的已读；消息右下角显示「N 已读」，他人已读会实时更新 |
+| **免打扰** | 🔔/🔕 按房间设置，群列表中标记，接口 `/api/rooms` 返回 `muted` 列表 |
+| **历史分页** | 滚到顶部自动加载更早消息（游标分页），保持滚动位置不跳动；全部加载完显示「已经是最早的消息了」 |
+| **日期分隔线** | 跨天自动插入「今天 / 昨天 / 具体日期」分隔条 |
+| 文件传输 | 📎 按钮或直接把文件拖进聊天区；先走文件接口上传，再以 `attach` 消息发出 |
+| 未读 | 群聊与私聊各自维护已读水位，切换房间自动标记，房间列表显示未读数 |
+| 撤回 | 可撤回自己的消息；管理员可撤回任意消息 |
 
-指令：`/help` `/who` `/time` `/me 微笑`。发送限流 8 条 / 5 秒。客户端内置指数退避重连。
+**文件权限**：聊天附件不是公开图床。下载接口 `/api/attachments/:id` 只对「发件人本人」或「所在房间的成员」开放，其余一律 403。
+
+### WebSocket 协议
+
+连接 `ws://<host>/ws`，通过同源 Cookie 识别身份。
+
+**客户端 → 服务端**
+
+```jsonc
+{ "type": "join",   "room": "g-xxxxxxxx" }   // 加入并切换到该房间（可多次，累积订阅）
+{ "type": "leave",  "room": "g-xxxxxxxx" }   // 退出房间
+{ "type": "switch", "room": "g-xxxxxxxx" }   // 切换当前房间
+{ "type": "chat",   "body": "你好", "replyTo": 88 }  // 发言 / 引用回复 / 指令
+{ "type": "attach", "fileId": 12 }           // 发送已上传的附件
+{ "type": "read",   "room": "g-xxxxxxxx" }   // 标记已读
+{ "type": "seen",    "room": "g-xxxxxxxx", "messageIds": [88, 89] }  // 已读回执
+{ "type": "delete", "messageId": 88 }        // 撤回
+```
+
+**服务端 → 客户端**
+
+```jsonc
+{ "type": "ready",   "you": {...}, "online": 3, "messages": [ … ] }   // 连接就绪（大厅历史）
+{ "type": "room",    "room": "g-xxxxxxxx", "online": 2, "pinned": {…}, "muted": false, "hasMore": true, "messages": [ … ] }
+{ "type": "left",    "room": "g-xxxxxxxx", "active": "lobby" }
+{ "type": "presence","room": "g-xxxxxxxx", "online": 4, "total": 9 }
+{ "type": "pinned",   "room": "g-xxxxxxxx", "pinned": {…} | null }
+{ "type": "seen",     "room": "g-xxxxxxxx", "readerId": 7, "messageIds": [88] }
+{ "type": "mute",     "room": "g-xxxxxxxx", "userId": 7, "muted": true }
+{ "type": "message", "room": "g-xxxxxxxx", "message": { … } }
+{ "type": "members-changed", "room": "g-xxxxxxxx" }
+{ "type": "room-update" | "room-closed" | "deleted" | "error" }
+```
+
+房间可见性与发言权限统一由 `server/models/rooms.js` 的 `accessOf` / `isMember` 判定，HTTP 接口与 WebSocket 共用同一套规则，避免出现「接口说能进、WS 说不能发」的不一致。
 
 ---
 
@@ -192,7 +276,18 @@ npm run seed       # 仅在数据库为空时写入种子数据
 | 文章被点赞 | +1 | 50 次 |
 | 评论被点赞 | +2 | 30 次 |
 
-商城道具：4 套主题皮肤、2 款头像框、2 枚勋章、2 档存储扩容、1 张改名券。限量道具售罄即止，兑换在事务内完成扣分与发货。
+### 商城（29 件）
+
+| 类型 | 数量 | 兑换后 |
+| --- | --- | --- |
+| 主题皮肤 | 8 | 立即切换整站配色（`data-skin`），与明暗模式自由组合 |
+| 头像框 | 5 | 个人中心 / 主页 / 成员列表头像显示对应描边 |
+| 称号 | 6 | 显示在昵称旁（侧边栏、评论区、成员列表） |
+| 勋章 | 4 | 收集展示在个人中心的勋章墙 |
+| 存储扩容 | 3 | 永久提高文件配额（基数 200MB + 加成） |
+| 一次性道具 | 3 | 改名券、文章置顶卡、幸运 Cookie（随机 50-300 分） |
+
+**兑换即生效**：皮肤 / 头像框 / 称号 / 存储属唯一类，兑换时在事务内自动装备，不需要再手动点一次「使用」；已生效的道具在商城里显示「已装备」，再买同类型会变成「切换」。限量道具售罄即止。
 
 ---
 
@@ -220,7 +315,9 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=4000 npm start
 
 ## 数据表
 
-`users` `sessions` `notes` `todos` `links` `files` `events` `settings` `categories` `tags` `posts` `post_tags` `comments` `reactions` `bookmarks` `short_links` `point_logs` `checkins` `shop_items` `user_items` `messages` `subscribers` `_migrations`
+`users` `sessions` `notes` `todos` `links` `files` `events` `settings` `categories` `tags` `posts` `post_tags` `comments` `reactions` `bookmarks` `short_links` `point_logs` `checkins` `shop_items` `user_items` `messages` `rooms` `room_members` `dm_threads` `dm_reads` `subscribers` `_migrations`
+
+最近三条迁移：`008_chat_rooms`（房间、成员、消息附件、私聊线程与已读）、`009_cosmetics`（皮肤、称号、存储加成）、`010_chat_v2`（消息回复引用、房间置顶公告、成员免打扰、消息已读回执）。
 
 迁移在 `server/migrations.js` 中按数组顺序执行，已应用的记录写入 `_migrations`。新增结构请**追加新条目**，不要修改已发布的条目。
 
@@ -248,9 +345,15 @@ NODE_ENV=production JWT_SECRET=$(openssl rand -hex 32) PORT=4000 npm start
 npm test
 ```
 
-在随机端口启动一个使用**临时数据库与临时上传目录**的实例，覆盖 **196 项**检查：静态资源与路径穿越、认证全流程、SSR 首屏与片段、博客增删改查与越权、评论与审核、点赞收藏、短链跳转与冲突、积分签到与每日上限、商城兑换与权益生效、文件上传落盘与公开分享、订阅、管理端权限、**双端契约一致性**。全部通过后自动清理。
+在随机端口启动一个使用**临时数据库与临时上传目录**的实例，覆盖 **322 项**检查：静态资源与路径穿越、认证全流程、SSR 首屏与片段、博客增删改查与越权、评论与审核、点赞收藏、短链跳转与冲突、积分签到与每日上限、商城兑换与权益生效、文件上传落盘与公开分享、订阅、管理端权限、**建群/拉人/踢人/退群/解散/私聊隔离/附件下载权限**、**商城扩充与兑换生效**、**聊天室增强**（置顶公告 / 房间搜索 / 免打扰 / 跨房间引用拦截 / 非成员置顶拦截）、**视图刷新契约**、**SSR 片段禁止缓存**、**双端契约一致性**。全部通过后自动清理。
 
-浏览器验收用 Chrome DevTools Protocol 跑过 14 个页面，确认无控制台错误（命令见 README 之外的口头说明，脚本思路：`Page.navigate` + `Runtime.exceptionThrown` + `Page.captureScreenshot`）。
+交互层另有 Chrome DevTools Protocol 脚本验证：
+- 写操作即时生效（21 项）：新建/勾选/标星/删除/签到/切换侧栏/前进后退后是否立即更新、是否发生整页刷新、`<main>` 外壳是否完好
+- 聊天室增强（19 项）：引用回复、群公告、房间搜索、免打扰、日期分隔线、悬浮操作、玻璃材质是否真的生效
+
+WebSocket 部分另有双客户端脚本级验证（两个连接同时收发、大厅与私聊消息不串房、非成员发言被拒、附件广播与下载权限、撤回权限）。
+
+浏览器验收用 Chrome DevTools Protocol 跑过全部页面，确认零控制台错误；聊天室的群消息、私聊、文件卡片、商城与装饰生效均已逐页截图核对。
 
 ---
 

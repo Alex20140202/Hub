@@ -37,7 +37,7 @@ export const popularTags = (limit = 20) =>
 
 const COLUMNS = `p.id, p.author_id AS authorId, p.title, p.slug, p.excerpt, p.body, p.cover_hue AS coverHue,
   p.status, p.featured, p.views, p.created_at AS createdAt, p.updated_at AS updatedAt, p.published_at AS publishedAt,
-  u.nickname AS authorName, u.username AS authorUsername, u.avatar_hue AS authorHue,
+  u.nickname AS authorName, u.username AS authorUsername, u.avatar_hue AS authorHue, u.frame AS authorFrame, u.title AS authorTitle,
   c.name AS categoryName, c.slug AS categorySlug`;
 
 const decorate = (row, { withBody = false } = {}) => {

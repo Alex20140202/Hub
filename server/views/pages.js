@@ -1,5 +1,10 @@
 import { escapeHtml, icon, initials, attr } from './html.js';
 import { formatBytes, formatNumber, fromNow, formatDate, hostname } from './format.js';
+import { avatarWithFrame } from './avatar.js';
+
+const BADGE_NAMES = { ocean: '深海之息', forest: '苔原微光', dusk: '黄昏暖阳', sakura: '樱色信笺', mint: '薄荷气泡', grape: '夜幕葡萄', mono: '黑白极简' };
+const FRAME_NAMES = { gold: '鎏金', neon: '霓虹', aurora: '极光', dashed: '虚线' };
+const BADGE_LABELS = { pioneer: '开拓者', collector: '收藏家', builder: '建设者', scholar: '学者' };
 import { globalSearch } from '../models/search.js';
 import { config } from '../config.js';
 
@@ -393,13 +398,13 @@ export function searchPage(ctx) {
 /* ---------------------------------- 设置 ---------------------------------- */
 
 export function settingsPage(ctx) {
-  const { user, sessions, site } = ctx.data;
-  return `${pageHead('设置', '资料、密码、主题与会话管理')}
+  const { user, sessions, site, badges = [], quota = 0 } = ctx.data;
+  return `${pageHead('设置', '资料、密码、外观与会话管理')}
   <div class="settings-grid">
     <section class="card">
       <div class="card-head"><h3>个人资料</h3></div>
       <form class="form" data-form="profile">
-        <div class="avatar-preview"><span class="avatar avatar-lg" style="--hue:${Number(user.avatarHue) || 210}">${escapeHtml(initials(user.nickname))}</span></div>
+        <div class="avatar-preview">${avatarWithFrame(user, 'avatar avatar-lg')}</div>
         <label class="field"><span>昵称</span><input class="input" name="nickname" value="${attr(user.nickname)}" maxlength="24" required></label>
         <label class="field"><span>用户名</span><input class="input" name="username" value="${attr(user.username)}" maxlength="24" required><em>@${escapeHtml(user.username)}</em></label>
         <label class="field"><span>简介</span><textarea class="input" name="bio" rows="3" maxlength="200">${escapeHtml(user.bio)}</textarea></label>
@@ -464,6 +469,21 @@ export function settingsPage(ctx) {
             : empty('没有其它登录设备', '')
         }
       </ul>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h3>我的外观</h3><a class="link-more" href="/points">去商城</a></div>
+      <dl class="defs">
+        <div><dt>主题</dt><dd>${user.skin ? escapeHtml(BADGE_NAMES[user.skin] ?? user.skin) : '默认'}</dd></div>
+        <div><dt>头像框</dt><dd>${user.frame ? escapeHtml(FRAME_NAMES[user.frame] ?? user.frame) : '无'}</dd></div>
+        <div><dt>称号</dt><dd>${user.title ? `<span class="user-title">${escapeHtml(user.title)}</span>` : '无'}</dd></div>
+        <div><dt>勋章</dt><dd>${
+          badges.length
+            ? `<div class="badge-wall">${badges.map((badge) => `<em class="badge">${escapeHtml(badge)}</em>`).join('')}</div>`
+            : '暂未获得'
+        }</dd></div>
+        <div><dt>存储</dt><dd>${formatBytes(quota)} 上限</dd></div>
+      </dl>
     </section>
 
     <section class="card">

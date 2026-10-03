@@ -75,7 +75,12 @@ export const getPublicFile = (id) =>
 
 export const registerDownload = (id) => run('UPDATE files SET downloads = downloads + 1 WHERE id = ?', id).changes > 0;
 
+/** 有效配额 = 基数 + 商城扩容加成。 */
+export const quotaOf = (userId) =>
+  config.storageBaseBytes + (get('SELECT storage_bonus AS b FROM users WHERE id = ?', userId)?.b ?? 0);
+
 export const storageStats = (userId) => ({
+  quota: quotaOf(userId),
   used: get('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE user_id = ?', userId).n,
   count: get('SELECT COUNT(*) AS n FROM files WHERE user_id = ?', userId).n,
   folders: all(

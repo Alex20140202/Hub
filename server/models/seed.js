@@ -8,7 +8,8 @@ import { createTodo } from './todos.js';
 import { createPost, createComment, ensureTag, listCategories, createCategory, toggleReaction, updatePost } from './posts.js';
 import { createShort } from './shorts.js';
 import { addMessage, subscribe } from './chat.js';
-import { upsertItem, award, balanceOf, listShopItems } from './points.js';
+import { upsertItem, award, balanceOf, listShopItems, equipOwned } from './points.js';
+import * as rooms from './rooms.js';
 import { recordEvent } from './stats.js';
 
 /** 相对今天偏移若干天的日期字符串。 */
@@ -25,17 +26,46 @@ const backdate = (table, column, days, where = '', params = []) =>
 /* --------------------------------- 商城道具 --------------------------------- */
 
 const SHOP_ITEMS = [
-  { sku: 'skin-ocean', name: '海洋主题', description: '整站切换为冷色海洋配色，与明暗模式自由组合。', kind: 'skin', cost: 300, stock: null, payload: 'ocean', position: 1 },
-  { sku: 'skin-forest', name: '森林主题', description: '低饱和的绿意配色，长时间阅读更舒服。', kind: 'skin', cost: 300, stock: null, payload: 'forest', position: 2 },
-  { sku: 'skin-dusk', name: '落日主题', description: '暖橙渐变，适合夜间浏览。', kind: 'skin', cost: 420, stock: null, payload: 'dusk', position: 3 },
-  { sku: 'skin-mono', name: '黑白极简', description: '去掉一切装饰色，只留层次与留白。', kind: 'skin', cost: 200, stock: null, payload: 'mono', position: 4 },
-  { sku: 'frame-gold', name: '鎏金头像框', description: '个人中心与主页头像显示金色描边。', kind: 'frame', cost: 500, stock: 20, payload: 'gold', position: 5 },
-  { sku: 'frame-neon', name: '霓虹头像框', description: '赛博风格的发光描边。', kind: 'frame', cost: 380, stock: 30, payload: 'neon', position: 6 },
-  { sku: 'badge-pioneer', name: '开拓者勋章', description: '纪念你在 Hub 上留下的第一批内容。', kind: 'badge', cost: 150, stock: null, payload: 'pioneer', position: 7 },
-  { sku: 'badge-collector', name: '收藏家勋章', description: '展示在个人中心的勋章墙。', kind: 'badge', cost: 260, stock: 40, payload: 'collector', position: 8 },
-  { sku: 'storage-50', name: '存储扩容 +50MB', description: '永久提高你的存储配额上限。', kind: 'storage', cost: 220, stock: 50, payload: '52428800', position: 9 },
-  { sku: 'storage-200', name: '存储扩容 +200MB', description: '大文件用户的选择。', kind: 'storage', cost: 700, stock: 20, payload: '209715200', position: 10 },
-  { sku: 'rename-ticket', name: '用户名改名券', description: '在「我的道具」中手动使用，可修改一次用户名。', kind: 'consumable', cost: 180, stock: 15, payload: 'rename', position: 11 },
+  /* --------------------------------- 主题皮肤 --------------------------------- */
+  { sku: 'skin-default', name: '经典靛蓝', description: '本站默认配色，永不过时。', kind: 'skin', cost: 0, stock: null, payload: '', position: 1 },
+  { sku: 'skin-ocean', name: '深海之息', description: '整站切换为冷调海洋蓝，与明暗模式自由组合。', kind: 'skin', cost: 300, stock: null, payload: 'ocean', position: 2 },
+  { sku: 'skin-forest', name: '苔原微光', description: '低饱和绿意配色，长时间阅读更护眼。', kind: 'skin', cost: 300, stock: null, payload: 'forest', position: 3 },
+  { sku: 'skin-dusk', name: '黄昏暖阳', description: '暖橙渐变，适合夜里浏览。', kind: 'skin', cost: 420, stock: null, payload: 'dusk', position: 4 },
+  { sku: 'skin-sakura', name: '樱色信笺', description: '淡粉与米白，写文章时很舒服。', kind: 'skin', cost: 480, stock: 30, payload: 'sakura', position: 5 },
+  { sku: 'skin-mono', name: '黑白极简', description: '去掉一切装饰色，只留层次与留白。', kind: 'skin', cost: 200, stock: null, payload: 'mono', position: 6 },
+  { sku: 'skin-mint', name: '薄荷气泡', description: '青绿撞色，年轻一点。', kind: 'skin', cost: 360, stock: 40, payload: 'mint', position: 7 },
+  { sku: 'skin-grape', name: '夜幕葡萄', description: '深紫渐变，配合深色模式极佳。', kind: 'skin', cost: 520, stock: 25, payload: 'grape', position: 8 },
+
+  /* --------------------------------- 头像框 --------------------------------- */
+  { sku: 'frame-none', name: '素框', description: '默认无边框。', kind: 'frame', cost: 0, stock: null, payload: '', position: 9 },
+  { sku: 'frame-gold', name: '鎏金头像框', description: '个人中心与主页头像显示金色描边。', kind: 'frame', cost: 500, stock: 20, payload: 'gold', position: 10 },
+  { sku: 'frame-neon', name: '霓虹头像框', description: '赛博风格发光描边，深色模式下更亮眼。', kind: 'frame', cost: 380, stock: 30, payload: 'neon', position: 11 },
+  { sku: 'frame-aurora', name: '极光头像框', description: '青紫渐变流动边框，稀有外观。', kind: 'frame', cost: 760, stock: 12, payload: 'aurora', position: 12 },
+  { sku: 'frame-dashed', name: '虚线徽章框', description: '低调的虚线描边，几乎不抢视觉。', kind: 'frame', cost: 240, stock: null, payload: 'dashed', position: 13 },
+
+  /* ---------------------------------- 称号 ---------------------------------- */
+  { sku: 'title-newbie', name: '「新鲜出炉」', description: '新用户专属称号，展示在昵称旁。', kind: 'title', cost: 0, stock: null, payload: '新鲜出炉', position: 14 },
+  { sku: 'title-pioneer', name: '「开拓者」', description: '站内第一批内容创作者。', kind: 'title', cost: 150, stock: null, payload: '开拓者', position: 15 },
+  { sku: 'title-collector', name: '「收藏家」', description: '广受认可的优质作者。', kind: 'title', cost: 300, stock: 50, payload: '收藏家', position: 16 },
+  { sku: 'title-nightowl', name: '「夜猫子」', description: '总在深夜发布内容。', kind: 'title', cost: 260, stock: 60, payload: '夜猫子', position: 17 },
+  { sku: 'title-archivist', name: '「资料管理员」', description: '把知识整理得井井有条。', kind: 'title', cost: 420, stock: 40, payload: '资料管理员', position: 18 },
+  { sku: 'title-og', name: '「 founding 成员」', description: '开站即在的元老，限量 10 份。', kind: 'title', cost: 999, stock: 10, payload: '创始成员', position: 19 },
+
+  /* ---------------------------------- 勋章 ---------------------------------- */
+  { sku: 'badge-pioneer', name: '开拓者勋章', description: '纪念你在 Hub 上留下的第一批内容。', kind: 'badge', cost: 150, stock: null, payload: 'pioneer', position: 20 },
+  { sku: 'badge-collector', name: '收藏家勋章', description: '展示在个人中心的勋章墙。', kind: 'badge', cost: 260, stock: 40, payload: 'collector', position: 21 },
+  { sku: 'badge-builder', name: '建设者勋章', description: '为社区提交过反馈或建议。', kind: 'badge', cost: 320, stock: 30, payload: 'builder', position: 22 },
+  { sku: 'badge-scholar', name: '学者勋章', description: '你的文章被很多人在读。', kind: 'badge', cost: 450, stock: 25, payload: 'scholar', position: 23 },
+
+  /* -------------------------------- 存储扩容 -------------------------------- */
+  { sku: 'storage-50', name: '存储扩容 +50MB', description: '永久提高你的存储配额上限。', kind: 'storage', cost: 220, stock: 50, payload: '52428800', position: 24 },
+  { sku: 'storage-200', name: '存储扩容 +200MB', description: '大文件用户的选择。', kind: 'storage', cost: 700, stock: 20, payload: '209715200', position: 25 },
+  { sku: 'storage-500', name: '存储扩容 +500MB', description: '一次性解决空间焦虑。', kind: 'storage', cost: 1500, stock: 8, payload: '524288000', position: 26 },
+
+  /* ------------------------------- 一次性道具 ------------------------------- */
+  { sku: 'rename-ticket', name: '用户名改名券', description: '在「我的道具」中手动使用，可修改一次用户名。', kind: 'consumable', cost: 180, stock: 15, payload: 'rename', position: 27 },
+  { sku: 'boost-card', name: '文章置顶卡', description: '让一篇文章在首页「精选」多显示一周。', kind: 'consumable', cost: 240, stock: 30, payload: 'boost', position: 28 },
+  { sku: 'lucky-cookie', name: '幸运Cookie', description: '随机获得 50-300 积分。', kind: 'consumable', cost: 100, stock: null, payload: 'lucky', position: 29 },
 ];
 
 function seedShop() {
@@ -446,6 +476,64 @@ function ensureContent({ admin, demo, lin }) {
   // 订阅者
   if (get('SELECT COUNT(*) AS n FROM subscribers').n === 0) {
     for (const mail of ['reader1@example.com', 'reader2@example.com']) subscribe(mail);
+  }
+
+  // 示例群聊与私聊，让聊天室开箱有内容
+  if (get('SELECT COUNT(*) AS n FROM rooms').n === 0) {
+    const front = rooms.createGroup(admin.id, { name: '前端摸鱼群', topic: '交流技术、吐槽需求', isPublic: true, maxMembers: 50, memberIds: [demo.id, lin.id] });
+    rooms.createGroup(demo.id, { name: '读书会', topic: '每周一本书，输出一页笔记', isPublic: true, maxMembers: 30, memberIds: [lin.id] });
+    const privateGroup = rooms.createGroup(lin.id, { name: '协议小组', topic: '只聊底层实现', isPublic: false, memberIds: [admin.id] });
+
+    const seedRoomMessages = (code, list) => {
+      list.forEach((entry, index) => {
+        const who = { admin, demo, lin }[entry[0]];
+        addMessage({ room: code, userId: entry[0] === 'system' ? null : (who?.id ?? null), nickname: entry[1], kind: entry[2] ?? 'chat', body: entry[3] });
+        backdate('messages', 'created_at', list.length - index, 'WHERE room = ? AND id = (SELECT MAX(id) FROM messages)', [code]);
+      });
+    };
+
+    seedRoomMessages(front.code, [
+      ['admin', '管理员', 'system', '群已创建，欢迎大家'],
+      ['lin', '林小满', 'chat', '有人在看 WebSocket 的帧格式吗'],
+      ['demo', '演示用户', 'chat', '我也在看，掩码那段最容易踩坑'],
+      ['admin', '管理员', 'chat', '客户端帧必须掩码，服务端不用，这个我踩过'],
+      ['lin', '林小满', 'action', '记到笔记里了'],
+      ['demo', '演示用户', 'chat', '积分中心的商城挺有意思，兑换皮肤立刻生效'],
+    ]);
+
+    const dm = rooms.openDm(demo.id, lin.id);
+    seedRoomMessages(dm.room.code, [
+      ['demo', '演示用户', 'chat', '那篇 WebSocket 的文章你看了吗'],
+      ['lin', '林小满', 'chat', '看了，握手那段写得很清楚'],
+      ['lin', '林小满', 'chat', '有空一起把短链那块也写了？'],
+    ]);
+
+    void privateGroup;
+  }
+
+  // 给演示账号发一套合理的外观（皮肤/框/称号各一件 + 两枚勋章 + 一次扩容），
+  // 这样商城与个人中心开箱有内容可看，而不是把所有商品都塞给他
+  if (get("SELECT COUNT(*) AS n FROM user_items").n === 0) {
+    const wanted = ['skin-grape', 'frame-dashed', 'title-og', 'badge-pioneer', 'badge-scholar', 'storage-50'];
+    tx(() => {
+      for (const sku of wanted) {
+        const item = listShopItems().find((entry) => entry.sku === sku);
+        if (!item) continue;
+        run('INSERT INTO user_items (user_id, item_id) VALUES (?, ?)', demo.id, item.id);
+        run('UPDATE shop_items SET sold = sold + 1 WHERE id = ?', item.id);
+        equipOwned(demo.id, item);
+      }
+      // 直接把余额抬到 420，同时补一条流水，保证「累计赚取」与余额自洽
+      const before = balanceOf(demo.id);
+      run('UPDATE users SET points = 420 WHERE id = ?', demo.id);
+      run(
+        'INSERT INTO point_logs (user_id, delta, balance, reason) VALUES (?, ?, ?, ?)',
+        demo.id,
+        420 - before,
+        420,
+        '历史积分（演示数据）',
+      );
+    });
   }
 
   // 活动事件：让仪表盘趋势图有内容

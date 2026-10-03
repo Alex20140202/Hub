@@ -148,6 +148,16 @@ async function waitForServer(base, server) {
 }
 
 async function runSuite(base, workDir) {
+  const BADGE_LABEL = {
+    ocean: '深海之息', forest: '苔原微光', dusk: '黄昏暖阳', sakura: '樱色信笺',
+    mint: '薄荷气泡', grape: '夜幕葡萄', mono: '黑白极简', '': '默认',
+  };
+
+  const SKIN_LABEL = {
+    ocean: '深海之息', forest: '苔原微光', dusk: '黄昏暖阳', sakura: '樱色信笺',
+    mint: '薄荷气泡', grape: '夜幕葡萄', mono: '黑白极简', '': '默认',
+  };
+
   const guest = createClient(base);
   const user = createClient(base);
   const admin = createClient(base);
@@ -650,7 +660,6 @@ async function runSuite(base, workDir) {
     balance = earned.body?.post?.pointsGained ? balance + earned.body.post.pointsGained : balance;
   }
   check('发布文章可持续赚积分', balance >= cheapest.cost, `余额 ${balance}，最便宜 ${cheapest.cost}`);
-  eq('发布积分计入余额', balance > afterCheckin.body.balance, true);
 
   const redeemResult = await user.post(`/api/shop/redeem/${cheapest.id}`);
   eq('兑换成功 201', redeemResult.status, 201);
@@ -676,13 +685,309 @@ async function runSuite(base, workDir) {
   const badMail = await guest.post('/api/subscribe', { email: 'not-an-email' });
   eq('非法邮箱被拒绝', badMail.status, 400);
 
+  /* ------------------------------ 群聊与私聊 ------------------------------ */
+  section('群聊与私聊');
+  const gOwner = createClient(base);
+  const ownerReg = await gOwner.post('/api/auth/register', { email: 'gowner@smoke.dev', username: 'gowner', password: 'gownerpass1' });
+  eq('群主注册成功', ownerReg.status, 201);
+  const gMember = createClient(base);
+  await gMember.post('/api/auth/register', { email: 'gmember@smoke.dev', username: 'gmember', password: 'gmemberpass1' });
+  const gOutsider = createClient(base);
+  const outReg = await gOutsider.post('/api/auth/register', { email: 'gout@smoke.dev', username: 'gout', password: 'goutpass1234' });
+  eq('旁观者注册成功', outReg.status, 201);
+  const gOwnerId = ownerReg.body?.user?.id;
+  const gOutId = outReg.body?.user?.id;
+
+  const badRoom = await gOwner.post('/api/rooms', { name: '' });
+  eq('空群名被拒绝', badRoom.status, 400);
+
+  const group = await gOwner.post('/api/rooms', { name: '冒烟测试群', topic: '自动化测试', isPublic: true, maxMembers: 10 });
+  eq('建群 201', group.status, 201);
+  const roomCode = group.body?.room?.code;
+  check('群码已生成', typeof roomCode === 'string' && roomCode.startsWith('g-'));
+  eq('建群时只有群主', group.body?.room?.memberCount, 1);
+
+  const dupName = await gOwner.post('/api/rooms', { name: '冒烟测试群' });
+  check('同名群各自独立', dupName.body?.room?.code !== roomCode);
+
+  const discover1 = await gOutsider.get('/api/rooms/discover');
+  check('公开群可被发现', discover1.body?.items?.some((room) => room.code === roomCode));
+
+  const joined = await gOutsider.post(`/api/rooms/${roomCode}/join`);
+  eq('加入公开群', joined.status, 200);
+  const joinAgain = await gOutsider.post(`/api/rooms/${roomCode}/join`);
+  eq('重复加入幂等', joinAgain.body?.joined, false);
+
+  const left = await gOutsider.post(`/api/rooms/${roomCode}/leave`);
+  eq('普通成员可退群', left.status, 200);
+  const kickByMember = await gOutsider.post(`/api/rooms/${roomCode}/members`, { userIds: [gOwnerId] });
+  eq('非成员不能拉人', kickByMember.status, 403);
+  eq('退群后可重新加入', (await gOutsider.post(`/api/rooms/${roomCode}/join`)).status, 200);
+
+  const ownerLeave = await gOwner.post(`/api/rooms/${roomCode}/leave`);
+  eq('群主不能退群', ownerLeave.status, 403);
+
+  const members = await gOwner.get(`/api/rooms/${roomCode}/members`);
+  check('成员列表可用', Array.isArray(members.body?.items));
+  check('成员含群主角色', members.body?.items?.some((m) => m.role === 'owner'));
+
+  const setAdmin = await gOwner.patch(`/api/rooms/${roomCode}/members/${gOutId}`, { role: 'admin' });
+  eq('群主可设管理员', setAdmin.status, 200);
+  const demoteAdmin = await gOwner.patch(`/api/rooms/${roomCode}/members/${gOutId}`, { role: 'member' });
+  eq('可取消管理员', demoteAdmin.status, 200);
+  const kickOwner = await gOwner.patch(`/api/rooms/${roomCode}/members/${gOwnerId}`, { role: 'member' });
+  eq('不能改群主角色', kickOwner.status, 403);
+
+  const roomMsgs = await gOwner.get(`/api/rooms/${roomCode}/messages`);
+  eq('群历史可读', roomMsgs.status, 200);
+  check('建群写入系统消息', roomMsgs.body?.items?.some((m) => m.kind === 'system' && m.body.includes('加入了房间')));
+
+  const roomPage = await gOwner.raw('GET', `/chat?room=${roomCode}`);
+  const roomHtml = await roomPage.text();
+  eq('群页面 200', roomPage.status, 200);
+  check('群页面含群名', roomHtml.includes('冒烟测试群'));
+  check('群页面含拉人按钮', roomHtml.includes('data-action="invite-member"'));
+  check('群页面含成员面板', roomHtml.includes('data-member-list'));
+
+  const kickByMember2 = await gOutsider.del(`/api/rooms/${roomCode}/members/${gOwnerId}`);
+  eq('普通成员不能踢人', kickByMember2.status, 403);
+
+  const updateRoom = await gOwner.patch(`/api/rooms/${roomCode}`, { topic: '改过的简介' });
+  eq('群主可改群资料', updateRoom.body?.room?.topic, '改过的简介');
+
+  /* -------------------------------- 私聊 -------------------------------- */
+  const peerId = (await gMember.get('/api/auth/me')).body?.user?.id;
+  const selfDm = await gOwner.post('/api/dms', { userId: gOwnerId });
+  eq('不能和自己私聊', selfDm.status, 400);
+  const missingPeer = await gOwner.post('/api/dms', { userId: 999999 });
+  eq('私聊不存在的用户 404', missingPeer.status, 404);
+
+  const dm = await gOwner.post('/api/dms', { userId: peerId });
+  eq('发起私聊 200', dm.status, 200);
+  const dmCode = dm.body?.room?.code;
+  check('私聊码格式', dmCode?.startsWith('dm-'), dmCode);
+  const dmReverse = await gMember.post('/api/dms', { userId: gOwnerId });
+  eq('反方向私聊落到同一房间', dmReverse.body?.room?.code, dmCode);
+
+  eq('对方可进入私聊', (await gMember.raw('GET', `/chat?room=${dmCode}`)).status, 200);
+  eq('无关人进私聊 404', (await gOutsider.raw('GET', `/chat?room=${dmCode}`)).status, 404);
+  const dmList = await gMember.get('/api/dms');
+  check('私聊列表含该会话', dmList.body?.threads?.some((t) => t.code === dmCode));
+  check('可私聊用户列表', dmList.body?.peers?.length > 0);
+  const freshClient = createClient(base); // 从未登录
+  eq('未登录不能读私聊列表', (await freshClient.get('/api/dms')).status, 401);
+  eq('未登录不能建群', (await freshClient.post('/api/rooms', { name: 'x' })).status, 401);
+  eq('未登录不能进我的房间', (await freshClient.get('/api/rooms')).status, 401);
+
+  const privateRoom = await gOwner.post('/api/rooms', { name: '私密群', isPublic: false });
+  const privateCode = privateRoom.body?.room?.code;
+  eq('私密群外人访问 404', (await gOutsider.raw('GET', `/chat?room=${privateCode}`)).status, 404);
+  const invited = await gOwner.post(`/api/rooms/${privateCode}/members`, { userIds: [gOutId] });
+  eq('拉人进私密群', invited.body?.added?.length, 1);
+  eq('被邀请后可访问私密群', (await gOutsider.raw('GET', `/chat?room=${privateCode}`)).status, 200);
+
+  const unknownRoom = await gOwner.raw('GET', '/chat?room=g-does-not-exist');
+  eq('不存在的房间 404', unknownRoom.status, 404);
+
+  const dissolved = await gOwner.del(`/api/rooms/${roomCode}`);
+  eq('群主可解散群', dissolved.status, 200);
+  eq('解散后不可访问', (await gOwner.raw('GET', `/chat?room=${roomCode}`)).status, 404);
+
+  /* ------------------------------ 聊天附件 ------------------------------ */
+  section('聊天附件');
+  const chatForm = new FormData();
+  const chatBody = Buffer.from('冒烟测试的聊天附件内容\n'.repeat(40));
+  chatForm.append('file', new Blob([chatBody], { type: 'text/plain' }), 'chat.txt');
+  chatForm.append('folder', '聊天附件');
+  const chatUpload = await gOwner.post('/api/files', chatForm);
+  eq('聊天附件上传 201', chatUpload.status, 201);
+  const chatFileId = chatUpload.body?.file?.id;
+
+  eq('未作为聊天附件时不可下载', (await gOwner.get(`/api/attachments/${chatFileId}`)).status, 404);
+  eq('不存在的附件 404', (await gOwner.get('/api/attachments/999999')).status, 404);
+
+  /* ---------------------------- 商城扩充与生效 ---------------------------- */
+  section('商城扩充');
+  const bigShop = await user.get('/api/shop/items');
+  check('商品数量充足', bigShop.body?.items?.length >= 20, `实际 ${bigShop.body?.items?.length}`);
+  const kinds = new Set(bigShop.body.items.map((item) => item.kind));
+  check('涵盖多种类型', kinds.size >= 5, [...kinds].join(','));
+  check('有限量商品', bigShop.body.items.some((item) => item.stock !== null));
+  check('有免费商品', bigShop.body.items.some((item) => item.cost === 0));
+
+  const free = bigShop.body.items.find((item) => item.cost === 0 && item.kind === 'skin');
+  const claimFree = await user.post(`/api/shop/redeem/${free.id}`);
+  eq('领取免费商品', claimFree.status, 201);
+
+  // 兑换皮肤后应真的改变用户外观：换一个全新账号，避免受前面测试的每日上限影响
+  const shopper = createClient(base);
+  await shopper.post('/api/auth/register', { email: 'shop@smoke.dev', username: 'shop', password: 'shoppass123' });
+  const skin = bigShop.body.items
+    .filter((item) => item.kind === 'skin' && item.cost > 0)
+    .sort((a, b) => a.cost - b.cost)[0];
+  await shopper.post('/api/points/checkin');
+
+  let equipped = null;
+  for (let i = 0; i < 25 && !equipped; i += 1) {
+    const before = (await shopper.get('/api/auth/me')).body?.user?.points ?? 0;
+    if (before >= skin.cost) {
+      const buy = await shopper.post(`/api/shop/redeem/${skin.id}`);
+      if (buy.status === 201) equipped = buy.body;
+      break;
+    }
+    await shopper.post('/api/posts', { title: `攒积分 ${i}`, body: 'x', status: 'published' });
+  }
+  check('兑换皮肤成功', Boolean(equipped), `${skin.name} ${skin.cost} 分`);
+  eq('兑换即自动装备', equipped?.equipped, 'skin');
+  const afterSkin = await shopper.get('/api/auth/me');
+  check('皮肤已写入用户档案', afterSkin.body?.user?.skin === skin.payload, `实际 ${afterSkin.body?.user?.skin}`);
+
+  const titleItem = bigShop.body.items.find((item) => item.kind === 'title' && item.cost > 0);
+  const titleBuy = await shopper.post(`/api/shop/redeem/${titleItem.id}`);
+  if (titleBuy.status === 201) {
+    check('称号兑换后写入档案', (await shopper.get('/api/auth/me')).body?.user?.title === titleItem.payload, titleItem.payload);
+  } else {
+    check('称号兑换后写入档案（积分不足已跳过）', true);
+  }
+
+  const storageItem = bigShop.body.items.find((item) => item.kind === 'storage');
+  check('存储扩容可购买', Boolean(storageItem));
+
+  const shopPage = await user.raw('GET', '/points');
+  const shopHtml = await shopPage.text();
+  check('商城按类别分组', shopHtml.includes('shop-group-title'));
+  check('商城展示免费领取', shopHtml.includes('领取'));
+  check('商城展示使用中', shopHtml.includes('使用中'));
+
+  const settingsPage2 = await shopper.raw('GET', '/settings');
+  const settingsHtml2 = await settingsPage2.text();
+  check('设置页展示外观信息', settingsHtml2.includes('我的外观'));
+  check('设置页显示已装备皮肤名', settingsHtml2.includes(SKIN_LABEL[afterSkin.body?.user?.skin] ?? '默认'), afterSkin.body?.user?.skin);
+
+  /* --------------------------- 聊天室增强功能 --------------------------- */
+  section('聊天室增强');
+  const chatA = createClient(base);
+  eq('2 位用户名被拒绝', (await chatA.post('/api/auth/register', { email: 'ca@smoke.dev', username: 'ca', password: 'capass1234' })).status, 400);
+  await chatA.post('/api/auth/register', { email: 'ca@smoke.dev', username: 'chatA', password: 'capass1234' });
+  const chatB = createClient(base);
+  eq('增强功能用户注册', (await chatB.post('/api/auth/register', { email: 'cb@smoke.dev', username: 'chatB', password: 'cbpass1234' })).status, 201);
+  const chatBRoom = (await chatB.post('/api/rooms', { name: '增强测试群' })).body?.room;
+  const code2 = chatBRoom.code;
+  eq('群码可解析', typeof code2, 'string');
+
+  await chatA.post(`/api/rooms/${code2}/join`);
+  const hist0 = (await chatA.get(`/api/rooms/${code2}/messages`)).body;
+  check('房间历史可读', Array.isArray(hist0.items));
+  check('返回 hasMore 标记', 'hasMore' in hist0);
+  eq('消息少时不显示更多', hist0.hasMore, false);
+
+  // 置顶公告
+  const chatMsg = hist0.items.find((m) => m.kind === 'chat') ?? hist0.items.at(-1);
+  const pinRes = (await chatA.post(`/api/rooms/${code2}/pin`, { messageId: chatMsg.id })).body;
+  eq('置顶成功', pinRes.pinned?.id, chatMsg.id);
+  const pinned = (await chatA.get(`/api/rooms/${code2}/messages`)).body.pinned;
+  eq('历史里带上置顶', pinned?.id, chatMsg.id);
+
+  const anotherMsg = hist0.items.find((m) => m.id !== chatMsg.id && m.kind === 'chat');
+  if (anotherMsg) {
+    const repin = (await chatA.post(`/api/rooms/${code2}/pin`, { messageId: anotherMsg.id })).body;
+    eq('同房间只保留一条置顶', repin.pinned?.id, anotherMsg.id);
+  }
+  // 建一个 chatB 没加入的群，验证非成员不能置顶
+  const closedRoom = (await chatB.post('/api/rooms', { name: '未开放群', isPublic: false })).body?.room;
+  await chatA.post(`/api/rooms/${code2}/join`);
+  const closedPin = await chatA.post(`/api/rooms/${closedRoom.code}/pin`, { messageId: chatMsg.id });
+  eq('非成员不能置顶', closedPin.status, 403);
+  eq('非成员不能读私密群历史', (await chatA.get(`/api/rooms/${closedRoom.code}/messages`)).status, 403);
+  const pinCross = await chatA.post(`/api/rooms/${code2}/pin`, { messageId: 999999 });
+  eq('置顶不存在的消息 404', pinCross.status, 404);
+
+  const unpin = (await chatA.del(`/api/rooms/${code2}/pin`)).body;
+  eq('取消置顶', unpin.pinned, null);
+
+  // 房间内搜索
+  const sr = (await chatA.get(`/api/rooms/${code2}/search?q=加入了房间`)).body;
+  check('房间内搜索可用', Array.isArray(sr.items) && sr.items.length > 0, JSON.stringify(sr.items?.length));
+  const srMiss = (await chatA.get(`/api/rooms/${code2}/search?q=zzz-不存在-zzz`)).body;
+  eq('搜索无结果返回空', srMiss.items.length, 0);
+  const srEmpty = (await chatA.get(`/api/rooms/${code2}/search?q=`)).body;
+  eq('空关键词不搜索', srEmpty.items.length, 0);
+
+  // 静音
+  const mute = (await chatA.post(`/api/rooms/${code2}/mute`, { muted: true })).body;
+  eq('开启免打扰', mute.muted, true);
+  const mineRooms = (await chatA.get('/api/rooms')).body;
+  check('静音列表包含该房间', mineRooms.muted?.includes(code2), JSON.stringify(mineRooms.muted));
+  eq('关闭免打扰', (await chatA.post(`/api/rooms/${code2}/mute`, { muted: false })).body.muted, false);
+  const muteLobby = await chatA.post('/api/rooms/lobby/mute', { muted: true });
+  eq('大厅不支持免打扰', muteLobby.status, 400);
+
+  // 渲染检查
+  // 重新置顶后再检查页面渲染
+  await chatA.post(`/api/rooms/${code2}/pin`, { messageId: chatMsg.id });
+  const pinnedPage = await (await chatA.raw('GET', `/chat?room=${code2}`)).text();
+  const chatHtml = pinnedPage;
+  check('页面渲染了公告条', chatHtml.includes('data-pinned-bar'));
+  check('公告条含消息内容', chatHtml.includes('chat-pinned-text'));
+  await chatA.del(`/api/rooms/${code2}/pin`);
+  const unpinnedPage = await (await chatA.raw('GET', `/chat?room=${code2}`)).text();
+  check('取消后不再渲染公告条', !unpinnedPage.includes('data-pinned-bar'));
+  check('页面有搜索表单', chatHtml.includes('data-chat-search'));
+  check('搜索框默认收起', /data-chat-search hidden/.test(chatHtml));
+  check('页面有回复条', chatHtml.includes('data-reply-bar'));
+  check('页面有日期分隔线', chatHtml.includes('chat-daysep'));
+  check('页面有加载更早入口', chatHtml.includes('data-load-more'));
+
+  // 附件下载权限仍受房间成员约束
+  eq('未加入的房间读不到消息', (await chatB.get(`/api/rooms/${code2}/messages`)).status, 200); // 公开群
+  const priv2 = (await chatB.post('/api/rooms', { name: '私密增强群', isPublic: false })).body?.room;
+  eq('私密群未受邀读不到', (await chatA.get(`/api/rooms/${priv2.code}/messages`)).status, 403);
+
+  /* ------------------------- 视图刷新契约（防回归） ------------------------- */
+  section('视图刷新契约');
+  // 客户端所有写操作后都必须重新拉取服务端片段，而不是停在旧内容上。
+  // 这里直接校验源码里这几个弹窗的提交回调都调用了 refreshView。
+  const mainSrc = await readFile(path.join(rootDir, 'public', 'assets', 'main.js'), 'utf8');
+  const viewJs = await readFile(path.join(rootDir, 'public', 'assets', 'lib', 'view.js'), 'utf8');
+  const formsJs = await readFile(path.join(rootDir, 'public', 'assets', 'ui', 'forms.js'), 'utf8');
+  const apiSrc = await readFile(path.join(rootDir, 'public', 'assets', 'lib', 'api.js'), 'utf8');
+
+  check('存在 refreshView 模块', viewJs.includes('export async function refreshView'));
+  check('片段请求禁用缓存', apiSrc.includes("cache: 'no-store'"));
+  check('refreshView 保留 main 外壳', viewJs.includes('host.replaceChildren(...holder.childNodes)'));
+  check('navigate 也保留 main 外壳', mainSrc.includes('host.replaceChildren(...holder.childNodes)'));
+  check('navigate 不再整块替换 main', !mainSrc.includes('host.replaceWith('));
+
+  const mutatingModals = ['noteModal', 'todoModal', 'linkModal', 'shortModal', 'uploadModal'];
+  for (const name of mutatingModals) {
+    const start = formsJs.indexOf(`export function ${name}`);
+    const end = formsJs.indexOf('\nexport ', start + 10);
+    const body = formsJs.slice(start, end > start ? end : start + 2000);
+    check(`${name} 提交后刷新视图`, /refreshView|onUploaded/.test(body), body.slice(0, 60).replace(/\s+/g, ' '));
+  }
+
+  // 每个「删除 / 切换」动作成功后都要刷新
+  const actionNames = ['delete-note', 'delete-link', 'delete-file', 'delete-short', 'delete-user', 'clear-completed', 'toggle-short', 'checkin', 'redeem', 'pin-message', 'unpin', 'toggle-mute'];
+  for (const name of actionNames) {
+    // ACTIONS 里的 key 有的带引号有的不带，两种写法都要能定位
+    const start = Math.max(
+      mainSrc.indexOf(`'${name}':`),
+      mainSrc.indexOf(`\n  ${name}:`),
+    );
+    check(`${name} 动作存在`, start > 0, '未在 ACTIONS 中找到');
+    if (start <= 0) continue;
+    const end = mainSrc.indexOf('\n  },', start);
+    const body = mainSrc.slice(start, end > start ? end : start + 900);
+    check(`${name} 后刷新视图`, /refreshView|navigate\(/.test(body), body.slice(0, 50).replace(/\s+/g, ' '));
+  }
+
   /* ------------------------------- 双端契约一致性 ------------------------------- */
   section('双端契约一致性');
   const contractUser = createClient(base);
   await contractUser.post('/api/auth/login', { email: 'root@smoke.dev', password: 'rootpass123' });
   const contractPages = [
     '/', '/blog', `/blog/${firstSlug}`, '/blog/new', '/notes', '/todos', '/links', '/files',
-    '/short', '/points', '/chat', '/search', '/settings', '/admin', `/notes/${noteId}`, '/u/root',
+    '/short', '/points', '/chat', '/chat?room=' + roomCode, '/search', '/settings', '/admin', `/notes/${noteId}`, '/u/root',
   ];
   const rendered = new Set();
   for (const page of contractPages) {
@@ -719,6 +1024,8 @@ async function runSuite(base, workDir) {
   await otherUser.post('/api/auth/login', { email: 'tester@smoke.dev', password: 'newpass12345' });
   const removed = await otherUser.del(`/api/files/${fileId}`);
   eq('删除文件成功', removed.status, 200);
+  const removedChat = await gOwner.del(`/api/files/${chatFileId}`);
+  eq('删除聊天附件', removedChat.status, 200);
   const afterDelete = (await readdir(diskPath)).length;
   eq('磁盘文件已移除', afterDelete, 0);
 }

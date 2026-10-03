@@ -214,11 +214,10 @@ const humanSize = (bytes) => {
 export function registerFiles(router) {
   router.get('/api/files', async (ctx) => {
     const user = ctx.requireUser();
-    const items = files.listFiles(user.id, { q: ctx.query.q ?? '', folder: ctx.query.folder ?? '' });
     const storage = files.storageStats(user.id);
     ctx.json(200, {
-      items,
-      storage: { ...storage, quota: config.maxUploadBytes * 200, usedLabel: humanSize(storage.used) },
+      items: files.listFiles(user.id, { q: ctx.query.q ?? '', folder: ctx.query.folder ?? '' }),
+      storage: { ...storage, usedLabel: humanSize(storage.used) },
     });
   });
 
@@ -230,6 +229,11 @@ export function registerFiles(router) {
     if (!upload?.data?.length) throw badRequest('请选择要上传的文件');
     if (upload.data.length > config.maxUploadBytes) {
       throw tooLarge(`单个文件不能超过 ${humanSize(config.maxUploadBytes)}`);
+    }
+    // 存储配额：基数 + 商城扩容，已用满直接拒绝
+    const storage = files.storageStats(user.id);
+    if (storage.used + upload.data.length > storage.quota) {
+      throw tooLarge(`存储空间不足（已用 ${humanSize(storage.used)} / ${humanSize(storage.quota)}），可到积分商城扩容`);
     }
 
     const storedName = `${Date.now().toString(36)}-${randomBytes(6).toString('hex')}${path.extname(upload.filename).slice(0, 12)}`;

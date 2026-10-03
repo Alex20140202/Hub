@@ -1,4 +1,5 @@
 import { escapeHtml, icon, initials, jsonScript } from './html.js';
+import { avatarWithFrame } from './avatar.js';
 
 const NAV = [
   { group: '总览', items: [
@@ -66,9 +67,11 @@ export function renderLayout({ title, description, pathname, user, content, asse
 
   const theme = user?.theme ?? 'auto';
   const accent = user?.accent ?? 'indigo';
+  // 商城兑换的皮肤 / 头像框 / 称号在这里落到 DOM 属性上
+  const skin = user?.skin ?? '';
 
   return `<!doctype html>
-<html lang="zh-CN" data-theme="${escapeHtml(theme)}" data-accent="${escapeHtml(accent)}">
+<html lang="zh-CN" data-theme="${escapeHtml(theme)}" data-accent="${escapeHtml(accent)}"${skin ? ` data-skin="${escapeHtml(skin)}"` : ''}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -118,10 +121,10 @@ function sidebar({ user, nav, pathname }) {
   <nav class="nav" aria-label="主导航">${nav}</nav>
   <div class="sidebar-foot">
     <a class="user-chip" href="/settings">
-      <span class="avatar" style="--hue:${Number(user.avatarHue) || 210}">${escapeHtml(initials(user.nickname))}</span>
+      ${avatarWithFrame(user, 'avatar')}
       <span class="user-chip-text">
         <strong>${escapeHtml(user.nickname)}</strong>
-        <em>@${escapeHtml(user.username)}</em>
+        <em>${user.title ? `<span class="user-title">${escapeHtml(user.title)}</span> ` : ''}@${escapeHtml(user.username)}</em>
       </span>
     </a>
     <button class="icon-btn" type="button" data-action="logout" title="退出登录" aria-label="退出登录">${icon('logout')}</button>

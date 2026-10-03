@@ -1,9 +1,11 @@
 import { $, $$, formData, debounce } from './lib/dom.js';
 import { api, fetchFragment } from './lib/api.js';
+import { fromNow } from './lib/format.js';
+import { refreshView } from './lib/view.js';
 import { toast, toastOk, toastErr } from './ui/toast.js';
 import { openModal, closeModal, confirmModal } from './ui/modal.js';
 import { openPalette, installPalette } from './ui/palette.js';
-import { noteModal, todoModal, linkModal, uploadModal, shortModal } from './ui/forms.js';
+import { noteModal, todoModal, linkModal, uploadModal, shortModal, newRoomModal, newDmModal, inviteModal, roomSettingsModal, bindCurrentUser } from './ui/forms.js';
 import { createChat } from './ui/chat.js';
 
 const state = readState();
@@ -32,19 +34,19 @@ async function navigate(href, { replace = false, push = true } = {}) {
 
   try {
     const html = await fetchFragment(url.pathname + url.search);
-    const holder = document.createElement('div');
-    holder.innerHTML = html;
-    const next = holder.firstElementChild;
-    if (host && next) {
-      host.replaceWith(next);
-      next.id = 'main';
-      next.classList.add('fade-in');
+    if (host && html.trim()) {
+      // 片段是若干并列顶层元素，整体搬入；#main 只作为外壳保留
+      const holder = document.createElement('div');
+      holder.innerHTML = html;
+      host.replaceChildren(...holder.childNodes);
+      host.classList.add('fade-in');
     }
     if (push) {
       if (replace) history.replaceState({}, '', url);
       else history.pushState({}, '', url);
     }
     markActiveNav(url.pathname);
+    bindCurrentUser(state.user?.id ?? null);
     bindAfterSwap();
     maybeAutoOpen(url);
     document.body.classList.remove('nav-open');
@@ -107,7 +109,7 @@ const ACTIONS = {
     try {
       await api.notes.remove(node.dataset.id);
       toastOk('已删除');
-      navigate('/notes', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -138,7 +140,7 @@ const ACTIONS = {
     try {
       await api.links.remove(node.dataset.id);
       toastOk('已删除');
-      navigate('/links', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -149,7 +151,7 @@ const ACTIONS = {
     try {
       await api.files.remove(node.dataset.id);
       toastOk('文件已删除');
-      navigate('/files', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -158,12 +160,153 @@ const ACTIONS = {
     try {
       const result = await api.todos.clearCompleted();
       toastOk(`已清理 ${result.removed} 项`);
-      navigate(location.pathname + location.search, { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
   },
   'new-short': () => shortModal(),
+  'switch-room': (node) => {
+    const code = node.dataset.room;
+    if (code === chatRoom()) return;
+    chatClient?.join(code);
+    navigate(`/chat?room=${encodeURIComponent(code)}`);
+  },
+  'join-room': async (node) => {
+    try {
+      await api.rooms.join(node.dataset.room);
+      chatClient?.join(node.dataset.room);
+      toastOk('已加入房间');
+      await navigate(`/chat?room=${encodeURIComponent(node.dataset.room)}`);
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'new-room': () => newRoomModal(),
+  'new-dm': () => newDmModal(),
+  'send-file': () => chatClient?.pickFile(),
+  'reply-to': (node) => {
+    const message = { id: Number(node.dataset.id), nickname: node.dataset.nick, body: node.dataset.body };
+    chatClient?.setReplyTarget(message);
+    const bar = $('[data-reply-bar]');
+    if (!bar) return;
+    bar.hidden = false;
+    bar.querySelector('[name="replyTo"]').value = String(message.id);
+    bar.querySelector('[data-reply-nick]').textContent = message.nickname;
+    bar.querySelector('[name="body"]').focus();
+  },
+  'cancel-reply': () => {
+    chatClient?.setReplyTarget(null);
+    const bar = $('[data-reply-bar]');
+    if (!bar) return;
+    bar.hidden = true;
+    bar.querySelector('[name="replyTo"]').value = '';
+    bar.querySelector('[name="body"]').value = '';
+    $('.chat-input input[name="body"]')?.focus();
+  },
+  'pin-message': async (node) => {
+    try {
+      await api.rooms.pin(node.dataset.room, Number(node.dataset.id));
+      toastOk('已设为群公告');
+      await refreshView();
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  unpin: async (node) => {
+    try {
+      await api.rooms.unpin(node.dataset.room);
+      toastOk('已取消置顶');
+      await refreshView();
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'toggle-mute': async (node) => {
+    const button = node;
+    const muted = button.classList.contains('is-on');
+    try {
+      await api.rooms.mute(node.dataset.room, !muted);
+      toastOk(!muted ? '已开启免打扰' : '已关闭免打扰');
+      await refreshView();
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'open-search': () => {
+    const form = $('[data-chat-search]');
+    if (!form) return;
+    form.hidden = false;
+    form.querySelector('input').focus();
+  },
+  'close-search': () => {
+    const form = $('[data-chat-search]');
+    const results = $('[data-chat-search-results]');
+    if (form) form.hidden = true;
+    if (results) {
+      results.hidden = true;
+      results.replaceChildren();
+    }
+  },
+  'load-older': async (node) => {
+    node.disabled = true;
+    node.textContent = '加载中…';
+    try {
+      const more = await chatClient?.loadOlder();
+      if (!more) {
+        node.remove();
+      } else {
+        node.disabled = false;
+        node.textContent = '加载更早的消息';
+      }
+    } catch {
+      node.disabled = false;
+      node.textContent = '加载更早的消息';
+    }
+  },
+  'toggle-members': () => {
+    const panel = $('[data-members-panel]');
+    if (!panel) return;
+    panel.classList.toggle('is-open');
+  },
+  'invite-member': (node) => inviteModal(node.dataset.room),
+  'kick-member': async (node) => {
+    const ok = await confirmModal({ title: '移出成员', message: '确定把该成员移出房间？', confirmText: '移出' });
+    if (!ok) return;
+    try {
+      await api.rooms.kick(node.dataset.room, Number(node.dataset.id));
+      toastOk('已移出');
+      await refreshMembers();
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'leave-room': async (node) => {
+    const ok = await confirmModal({ title: '退出群聊', message: '退出后将无法再查看该群消息。', confirmText: '退出' });
+    if (!ok) return;
+    try {
+      await api.rooms.leave(node.dataset.room);
+      chatClient?.send({ type: 'leave', room: node.dataset.room });
+      toastOk('已退出');
+      await navigate('/chat');
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'delete-room': async (node) => {
+    const ok = await confirmModal({ title: '解散群聊', message: '房间将被删除，消息不再保留。', confirmText: '解散' });
+    if (!ok) return;
+    try {
+      await api.rooms.remove(node.dataset.room);
+      chatClient?.send({ type: 'leave', room: node.dataset.room });
+      toastOk('群聊已解散');
+      await navigate('/chat');
+    } catch (error) {
+      toastErr(error.message);
+    }
+  },
+  'room-settings': (node) => roomSettingsModal(node.dataset.room),
+  'redeem-and-equip': (node) => redeem(node),
   'delete-post': async (node) => {
     const ok = await confirmModal({ title: '删除文章', message: '文章与全部评论都会删除，无法恢复。', confirmText: '删除' });
     if (!ok) return;
@@ -221,7 +364,7 @@ const ACTIONS = {
   'toggle-short': async (node) => {
     try {
       await api.shorts.toggle(node.dataset.id, node.dataset.active !== '1');
-      navigate('/short', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -232,7 +375,7 @@ const ACTIONS = {
     try {
       await api.shorts.remove(node.dataset.id);
       toastOk('短链已删除');
-      navigate('/short', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -245,9 +388,7 @@ const ACTIONS = {
         return;
       }
       toastOk(`签到成功 +${result.reward} 积分，连签 ${result.streak} 天`);
-      node.disabled = true;
-      node.textContent = '今日已签到';
-      navigate('/points', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -256,7 +397,7 @@ const ACTIONS = {
     try {
       const result = await api.points.redeem(node.dataset.id);
       toastOk(`兑换成功：${result.item.name}`);
-      navigate('/points', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -272,7 +413,7 @@ const ACTIONS = {
     try {
       const result = await api.points.use(node.dataset.id);
       toastOk(`已使用：${result.item.name}`);
-      navigate('/points', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -291,7 +432,7 @@ const ACTIONS = {
     try {
       await api.auth.killSession(node.dataset.id);
       toastOk('已下线该设备');
-      navigate('/settings', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -308,7 +449,7 @@ const ACTIONS = {
     try {
       await api.admin.setRole(node.dataset.id, next);
       toastOk('角色已更新');
-      navigate('/admin', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -319,7 +460,7 @@ const ACTIONS = {
     try {
       await api.admin.removeUser(node.dataset.id);
       toastOk('用户已删除');
-      navigate('/admin', { push: false });
+      await refreshView();
     } catch (error) {
       toastErr(error.message);
     }
@@ -445,7 +586,7 @@ const FORMS = {
     state.user = user;
     document.documentElement.dataset.accent = user.accent;
     toastOk('资料已保存');
-    navigate('/settings', { push: false });
+    await refreshView();
   },
   password: async (values) => {
     await api.auth.changePassword({ current: values.current, next: values.next });
@@ -705,9 +846,96 @@ function installDragUpload() {
 /* --------------------------------- 启动 --------------------------------- */
 
 let chatClient = null;
+const chatRoom = () => $('#chat-log')?.dataset.room || 'lobby';
+
+const searchDebounced = debounce(async (keyword) => {
+  const results = $('[data-chat-search-results]');
+  if (!results || !keyword.trim()) {
+    if (results) results.replaceChildren();
+    return;
+  }
+  try {
+    const { items } = await chatClient.search(keyword.trim());
+    results.replaceChildren();
+    results.hidden = false;
+    if (!items.length) {
+      results.innerHTML = '<p class="hint chat-search-empty">没有匹配的消息</p>';
+      return;
+    }
+    for (const message of items) {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'chat-search-hit';
+      row.innerHTML = `<strong></strong><em></em><span class="hint"></span>`;
+      row.querySelector('strong').textContent = message.nickname;
+      row.querySelector('em').textContent = message.body.slice(0, 120);
+      row.querySelector('span').textContent = fromNow(message.createdAt);
+      row.addEventListener('click', () => {
+        const node = document.getElementById(`msg-${message.id}`);
+        if (!node) return toast('这条消息不在当前已加载的范围内');
+        node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        node.classList.add('is-flash');
+        setTimeout(() => node.classList.remove('is-flash'), 1400);
+      });
+      results.append(row);
+    }
+  } catch (error) {
+    results.hidden = false;
+    results.innerHTML = '<p class="hint">搜索失败，请稍后重试</p>';
+  }
+}, 260);
+
+/** 引用回复：走聊天自己的输入条。 */
+function bindReplyBar() {
+  const bar = $('[data-reply-bar]');
+  if (!bar || bar.dataset.bound) return;
+  bar.dataset.bound = '1';
+  bar.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const input = bar.querySelector('[name="body"]');
+    const target = chatClient?.getReplyTarget();
+    if (!input.value.trim()) return;
+    const sent = target
+      ? chatClient?.send({ type: 'chat', body: input.value, replyTo: target.id })
+      : chatClient?.sendText(input.value);
+    if (sent) {
+      input.value = '';
+      bar.hidden = true;
+      chatClient?.setReplyTarget(null);
+    }
+  });
+}
+
+/** 搜索用文档级事件委托：无论输入框何时被渲染出来都能响应，不依赖绑定时机。 */
+let searchBound = false;
+function bindChatSearch() {
+  if (searchBound) return;
+  searchBound = true;
+
+  document.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-chat-search-input]');
+    if (input) searchDebounced(input.value);
+  });
+
+  document.addEventListener('keydown', (event) => {
+    const input = event.target.closest('[data-chat-search-input]');
+    if (!input) return;
+    if (event.key === 'Escape') {
+      input.value = '';
+      searchDebounced('');
+      ACTIONS['close-search']();
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      searchDebounced(input.value);
+    }
+  });
+}
 
 function bindAfterSwap() {
   for (const form of $$('[data-form]')) handleSubmit(form);
+  bindReplyBar();
+  bindChatSearch();
   installPasswordMeter(document);
   installEditor();
   installDragUpload();
@@ -749,18 +977,61 @@ function mountChat() {
     chatClient = null;
     return;
   }
-  if (chatClient) return;
+  // 换页后 DOM 是新的，必须重建连接
+  chatClient?.close();
   chatClient = createChat({
     log,
-    input: $('.chat-input input[name="body"]'),
     status: $('[data-chat-status]'),
-    onlineBadge: $('[data-online-count]'),
-    onlineList: $('[data-online-list]'),
-    room: log.dataset.room || 'lobby',
+    onRoomChange: (code, meta) => {
+      if (meta?.members) refreshMembers();
+      if (meta?.unread) markUnread(code);
+    },
   });
 }
 
+/** 房间成员变动后刷新右侧成员面板。 */
+async function refreshMembers() {
+  const code = chatRoom();
+  const list = $('[data-member-list]');
+  if (!list || code === 'lobby') return;
+  try {
+    const { items } = await api.rooms.members(code);
+    for (const node of [...list.children]) {
+      const id = Number(node.dataset.member);
+      const member = items.find((entry) => entry.id === id);
+      if (!member) {
+        node.remove();
+        continue;
+      }
+      const title = node.querySelector('.row-title');
+      if (title && member.title) title.innerHTML += ` <em class="badge">${member.title}</em>`;
+    }
+    for (const member of items) {
+      if (list.querySelector(`[data-member="${member.id}"]`)) continue;
+      list.insertAdjacentHTML(
+        'beforeend',
+        `<li class="row" data-member="${member.id}">
+           <span class="avatar avatar-sm" style="--hue:${Number(member.avatarHue) || 210}">${(member.nickname || '?').slice(0, 1).toUpperCase()}</span>
+           <span class="row-main"><span class="row-title"></span><span class="row-meta">@${member.username}</span></span>
+         </li>`,
+      );
+      const title = list.querySelector(`[data-member="${member.id}"] .row-title`);
+      if (title) title.textContent = member.nickname;
+    }
+  } catch {
+    /* 成员刷新失败不打断聊天 */
+  }
+}
+
+/** 收到非当前房间消息时给房间项加未读点。 */
+function markUnread(code) {
+  const item = document.querySelector(`[data-action="switch-room"][data-room="${CSS.escape(code)}"]`);
+  if (!item || item.classList.contains('is-active')) return;
+  item.classList.add('has-unread');
+}
+
 function boot() {
+  bindCurrentUser(state.user?.id ?? null);
   installGlobalListeners();
   installPalette();
   bindAfterSwap();

@@ -2,7 +2,8 @@ import { all, get, run } from '../db.js';
 import { newSessionId } from '../lib/token.js';
 import { config } from '../config.js';
 
-const PUBLIC_COLUMNS = `id, email, username, nickname, role, bio, avatar_hue AS avatarHue, theme, accent, created_at AS createdAt`;
+const PUBLIC_COLUMNS = `id, email, username, nickname, role, bio, avatar_hue AS avatarHue, theme, accent,
+  skin, frame, title, storage_bonus AS storageBonus, points, created_at AS createdAt`;
 
 export const findById = (id) => get(`SELECT ${PUBLIC_COLUMNS} FROM users WHERE id = ?`, id);
 export const findByEmail = (email) => get('SELECT * FROM users WHERE email = ?', String(email).toLowerCase());
@@ -19,6 +20,8 @@ export const listUsers = (limit = 50) =>
   );
 
 export const countUsers = () => get('SELECT COUNT(*) AS n FROM users').n;
+
+export const findNickname = (id) => get('SELECT nickname FROM users WHERE id = ?', id)?.nickname ?? '某人';
 
 export function createUser({ email, username, nickname, passwordHash, role = 'user' }) {
   const hue = Math.floor(Math.random() * 360);

@@ -36,7 +36,14 @@ export function sendHtml(res, status, html, headers = {}) {
 
 export function sendText(res, status, text, contentType = 'text/plain; charset=utf-8', headers = {}) {
   const body = Buffer.from(text, 'utf8');
-  res.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length, ...headers });
+  res.writeHead(status, {
+    'Content-Type': contentType,
+    'Content-Length': body.length,
+    // 缺省禁止缓存：这些响应（如 SSR 片段）是逐用户动态内容，
+    // 若没有显式指令，浏览器会按启发式规则缓存，导致发布后看到旧页面
+    'Cache-Control': 'no-store',
+    ...headers,
+  });
   res.end(body);
 }
 

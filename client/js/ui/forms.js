@@ -1,8 +1,9 @@
 import { el, formData } from '../lib/dom.js';
-import { openModal } from '../ui/modal.js';
+import { openModal, closeModal } from '../ui/modal.js';
 import { api } from '../lib/api.js';
 import { toLocalInput } from '../lib/format.js';
 import { toastOk, toastErr } from '../ui/toast.js';
+import { refreshView } from '../lib/view.js';
 
 const COLORS = [
   ['slate', '默认'],
@@ -86,6 +87,7 @@ export function noteModal(note) {
       if (editing) await api.notes.update(note.id, payload);
       else await api.notes.create(payload);
       toastOk(editing ? '笔记已更新' : '笔记已创建');
+      await refreshView();
     },
   });
 }
@@ -108,6 +110,7 @@ export function todoModal(todo) {
       if (editing) await api.todos.update(todo.id, payload);
       else await api.todos.create(payload);
       toastOk(editing ? '待办已更新' : '待办已添加');
+      await refreshView();
     },
   });
 }
@@ -133,6 +136,7 @@ export function linkModal(link) {
       if (editing) await api.links.update(link.id, values);
       else await api.links.create(values);
       toastOk(editing ? '书签已更新' : '已收藏');
+      await refreshView();
     },
   });
 }
@@ -170,7 +174,8 @@ export function uploadModal(onUploaded) {
           await api.files.upload(body);
           close(true);
           toastOk('上传成功');
-          onUploaded?.();
+          if (onUploaded) await onUploaded();
+          else await refreshView();
         } catch (error) {
           toastErr(error.message);
         } finally {
@@ -199,6 +204,195 @@ export function shortModal() {
     onSubmit: async (values) => {
       const result = await api.shorts.create(values);
       toastOk(`已创建 ${location.origin}/s/${result.short.code}`);
+      await refreshView();
+    },
+  });
+}
+
+/* ------------------------------- 聊天室弹窗 ------------------------------- */
+
+/** 可拉人/可私聊的候选用户（排除自己与已在房间里的人）。 */
+async function candidateUsers(exclude = []) {
+  const { peers } = await api.dms.list();
+  const skip = new Set([...exclude, stateUserId()]);
+  return peers.filter((user) => !skip.has(user.id));
+}
+
+let currentUserId = null;
+export function bindCurrentUser(id) {
+  currentUserId = id;
+}
+const stateUserId = () => currentUserId;
+
+const userPicker = (users) =>
+  el(
+    'div',
+    { class: 'user-picker' },
+    users.length
+      ? users.map((user) =>
+          el(
+            'label',
+            { class: 'user-option' },
+            [
+              el('input', { type: 'checkbox', value: user.id }),
+              el('span', { class: 'avatar avatar-sm', style: `--hue:${Number(user.avatarHue) || 210}` }, [
+                (user.nickname || '?').slice(0, 1).toUpperCase(),
+              ]),
+              el('span', { class: 'user-option-text' }, [
+                el('strong', {}, [user.nickname]),
+                el('em', {}, [`@${user.username}`]),
+              ]),
+            ],
+          ),
+        )
+      : el('p', { class: 'hint' }, ['没有其他用户可选']),
+  );
+
+/** 创建群聊：可同时勾选首批成员。 */
+export async function newRoomModal() {
+  let users = [];
+  try {
+    users = await candidateUsers();
+  } catch (error) {
+    return toastErr(error.message);
+  }
+
+  formModal({
+    title: '创建群聊',
+    submitText: '创建',
+    fields: [
+      field('群名称', input('name', { maxlength: 40, placeholder: '例如：前端摸鱼群', required: true, autofocus: true })),
+      field('群简介', input('topic', { maxlength: 200, placeholder: '这个群用来做什么' })),
+      el('label', { class: 'field' }, [
+        el('span', {}, ['首批成员（可留空，之后再拉人）']),
+        userPicker(users),
+      ]),
+      el('label', { class: 'field field-inline' }, [
+        el('input', { type: 'checkbox', name: 'isPublic', checked: true }),
+        el('span', {}, ['公开群（其他人可以在「发现公开群」里加入）']),
+      ]),
+    ],
+    onSubmit: async (values, form) => {
+      const memberIds = [...form.querySelectorAll('.user-picker input:checked')].map((box) => Number(box.value));
+      const { room } = await api.rooms.create({
+        name: values.name,
+        topic: values.topic,
+        isPublic: values.isPublic !== false,
+        memberIds,
+      });
+      toastOk(`群「${room.name}」已创建`);
+      setTimeout(() => {
+        location.assign(`/chat?room=${encodeURIComponent(room.code)}`);
+      }, 500);
+    },
+  });
+}
+
+/** 发起私聊。 */
+export async function newDmModal() {
+  let users = [];
+  try {
+    const { peers } = await api.dms.list();
+    users = peers;
+  } catch (error) {
+    return toastErr(error.message);
+  }
+
+  formModal({
+    title: '发起私聊',
+    submitText: '开始私聊',
+    width: 460,
+    fields: [
+      el(
+        'div',
+        { class: 'form' },
+        users.length
+          ? users.map((user) =>
+              el(
+                'button',
+                {
+                  class: 'user-option user-option-button',
+                  type: 'button',
+                  onClick: async () => {
+                    try {
+                      const { room } = await api.dms.open(user.id);
+                      closeModal();
+                      location.assign(`/chat?room=${encodeURIComponent(room.code)}`);
+                    } catch (error) {
+                      toastErr(error.message);
+                    }
+                  },
+                },
+                [
+                  el('span', { class: 'avatar avatar-sm', style: `--hue:${Number(user.avatarHue) || 210}` }, [
+                    (user.nickname || '?').slice(0, 1).toUpperCase(),
+                  ]),
+                  el('span', { class: 'user-option-text' }, [el('strong', {}, [user.nickname]), el('em', {}, [`@${user.username}`])]),
+                ],
+              ),
+            )
+          : [el('p', { class: 'hint' }, ['还没有其他用户，先邀请一个来注册吧'])],
+      ),
+    ],
+    onSubmit: async () => {},
+  });
+}
+
+/** 拉人进群。 */
+export async function inviteModal(code) {
+  let users = [];
+  try {
+    const memberData = await api.rooms.members(code);
+    users = await candidateUsers(memberData.items.map((member) => member.id));
+  } catch (error) {
+    return toastErr(error.message);
+  }
+
+  formModal({
+    title: '邀请成员',
+    submitText: '邀请',
+    width: 460,
+    fields: [el('label', { class: 'field' }, [el('span', {}, ['选择要邀请的用户']), userPicker(users)])],
+    onSubmit: async (values, form) => {
+      const userIds = [...form.querySelectorAll('.user-picker input:checked')].map((box) => Number(box.value));
+      if (!userIds.length) throw new Error('请至少选择一位用户');
+      const result = await api.rooms.addMembers(code, userIds);
+      toastOk(result.added.length ? `已邀请 ${result.added.length} 人` : '对方已在房间里');
+    },
+  });
+}
+
+/** 群设置：改名、改简介、公开性、人数上限。 */
+export async function roomSettingsModal(code) {
+  let room = null;
+  try {
+    room = (await api.rooms.members(code)).room;
+  } catch (error) {
+    return toastErr(error.message);
+  }
+  if (!room) return toastErr('房间不存在');
+
+  formModal({
+    title: '群设置',
+    submitText: '保存',
+    fields: [
+      field('群名称', input('name', { value: room.name, maxlength: 40, required: true })),
+      field('群简介', input('topic', { value: room.topic, maxlength: 200 })),
+      field('人数上限', input('maxMembers', { type: 'number', value: room.maxMembers, min: 2, max: 200 })),
+      el('label', { class: 'field field-inline' }, [
+        el('input', { type: 'checkbox', name: 'isPublic', checked: room.isPublic }),
+        el('span', {}, ['公开群（可被搜索与发现）']),
+      ]),
+    ],
+    onSubmit: async (values) => {
+      await api.rooms.update(code, {
+        name: values.name,
+        topic: values.topic,
+        maxMembers: Number(values.maxMembers),
+        isPublic: values.isPublic !== false,
+      });
+      toastOk('已保存');
+      setTimeout(() => location.reload(), 400);
     },
   });
 }

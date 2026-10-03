@@ -4,6 +4,7 @@ import { badRequest, conflict, unauthorized, tooMany, notFound, forbidden } from
 import { createLimiter } from '../lib/rate-limit.js';
 import { email as vEmail, username as vUsername, password as vPassword, str, oneOf, THEMES, accent, int, logEvent } from '../lib/validate.js';
 import * as users from '../models/users.js';
+import * as points from '../models/points.js';
 import { getSettings } from '../models/stats.js';
 
 const authLimiter = createLimiter({ windowMs: 60_000, max: 20, name: 'auth' });
@@ -51,6 +52,7 @@ export function register(router) {
       passwordHash: hashPassword(secret),
     });
     logEvent(user.id, 'user.register', '注册账号');
+    points.award(user.id, 'user.register', { note: '注册账号' });
 
     const session = users.createSession(user.id, clientInfo(ctx));
     const token = issueToken({ uid: user.id, sid: session.id });
@@ -105,6 +107,7 @@ export function register(router) {
     }
 
     const updated = users.updateProfile(user.id, patch);
+    if (patch.bio && patch.bio.length >= 10) points.award(user.id, 'profile.complete', { note: '完善个人资料' });
     ctx.json(200, { user: users.toPublic(updated) });
   });
 

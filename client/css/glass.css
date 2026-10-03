@@ -1,0 +1,425 @@
+/* ============================================================
+   Liquid Glass 设计语言
+   玻璃层 = 半透明底 + 背景模糊/增色 + 镜面高光边 + 内侧折射 + 分层投影
+   高光边用 padding + mask 抠出 1px 描边，避免 border 被背景吃掉
+   ============================================================ */
+
+:root {
+  /* 玻璃层参数 */
+  --glass-blur: 26px;
+  --glass-sat: 190%;
+  --glass-tint: 76%;
+  --glass-edge: color-mix(in oklab, #fff 55%, transparent);
+  --glass-edge-soft: color-mix(in oklab, #fff 22%, transparent);
+  --glass-shade: color-mix(in oklab, #000 6%, transparent);
+  --glass-depth:
+    0 1px 1px var(--glass-shade),
+    0 6px 16px -6px color-mix(in oklab, var(--shadow-color, #101430) 22%, transparent),
+    0 20px 48px -20px color-mix(in oklab, var(--shadow-color, #101430) 30%, transparent);
+  --glass-depth-lg:
+    0 1px 1px var(--glass-shade),
+    0 10px 28px -8px color-mix(in oklab, var(--shadow-color, #101430) 26%, transparent),
+    0 40px 90px -30px color-mix(in oklab, var(--shadow-color, #101430) 38%, transparent);
+  --glass-inset: inset 0 1px 0 var(--glass-edge), inset 0 -1px 0 var(--glass-shade);
+  --radius-glass: 22px;
+}
+
+/* ------------------------------ 玻璃基底类 ------------------------------ */
+
+.glass {
+  position: relative;
+  background: color-mix(in oklab, var(--surface) var(--glass-tint), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border-radius: var(--radius-glass);
+  box-shadow: var(--glass-depth), var(--glass-inset);
+}
+
+/* 边缘镜面高光：1px 渐变描边，顶端更亮以模拟受光 */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    150deg,
+    var(--glass-edge) 0%,
+    var(--glass-edge-soft) 28%,
+    transparent 52%,
+    color-mix(in oklab, #fff 16%, transparent) 100%
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* 玻璃内的柔光斑，增加体积感 */
+.glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(120% 80% at 8% -10%, color-mix(in oklab, #fff 26%, transparent), transparent 60%),
+    radial-gradient(90% 70% at 100% 0%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 55%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.glass > * { position: relative; z-index: 1; }
+
+/* 暗色下玻璃要更通透、边缘更亮 */
+html[data-theme='dark'] .glass {
+  --glass-tint: 54%;
+  --glass-edge: color-mix(in oklab, #fff 34%, transparent);
+  --glass-edge-soft: color-mix(in oklab, #fff 12%, transparent);
+  --glass-shade: color-mix(in oklab, #000 34%, transparent);
+  --shadow-color: #000308;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-theme='auto'] .glass {
+    --glass-tint: 54%;
+    --glass-edge: color-mix(in oklab, #fff 34%, transparent);
+    --glass-edge-soft: color-mix(in oklab, #fff 12%, transparent);
+    --glass-shade: color-mix(in oklab, #000 34%, transparent);
+    --shadow-color: #000308;
+  }
+}
+
+/* ------------------------------ 背景光场 ------------------------------ */
+
+body {
+  /* 背景比玻璃略深一点，卡片才能"浮"出来 */
+  --bg: color-mix(in oklab, var(--bg) 92%, var(--accent));
+  /* 三层柔和光斑让玻璃有可折射的内容 */
+  background:
+    radial-gradient(52rem 30rem at 8% -8%, color-mix(in oklab, var(--accent) 26%, transparent), transparent 62%),
+    radial-gradient(44rem 26rem at 96% 4%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 58%),
+    radial-gradient(40rem 30rem at 60% 110%, color-mix(in oklab, var(--accent) 12%, transparent), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+html[data-theme='dark'] body {
+  background:
+    radial-gradient(52rem 30rem at 8% -8%, color-mix(in oklab, var(--accent) 30%, transparent), transparent 60%),
+    radial-gradient(46rem 28rem at 98% 8%, color-mix(in oklab, var(--accent) 18%, transparent), transparent 56%),
+    radial-gradient(40rem 30rem at 62% 108%, color-mix(in oklab, #7c3aed 14%, transparent), transparent 58%),
+    var(--bg);
+}
+
+/* ------------------------------ 导航玻璃 ------------------------------ */
+
+.sidebar {
+  background: color-mix(in oklab, var(--bg-elev) var(--glass-tint), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  border-right: none;
+  box-shadow: 1px 0 0 color-mix(in oklab, #fff 14%, transparent) inset, 18px 0 50px -30px rgb(0 0 0 / 0.5);
+}
+
+.topbar {
+  background: color-mix(in oklab, var(--bg) 42%, transparent);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  border-bottom: 1px solid color-mix(in oklab, #fff 12%, transparent);
+}
+
+/* ------------------------------ 卡片玻璃 ------------------------------ */
+
+.card,
+.stat,
+.post-card,
+.note-card,
+.link-card,
+.file-card,
+.shop-card,
+.empty,
+.feature,
+.profile-head,
+.storage-card {
+  background: color-mix(in oklab, var(--surface) var(--glass-tint), transparent);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: none;
+  box-shadow: var(--glass-depth), var(--glass-inset);
+  position: relative;
+}
+
+.card, .post-card, .note-card, .link-card, .file-card, .shop-card, .profile-head {
+  border-radius: var(--radius-glass);
+}
+
+.card::before,
+.post-card::before,
+.note-card::before,
+.link-card::before,
+.file-card::before,
+.shop-card::before,
+.profile-head::before,
+.stat::before,
+.feature::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, var(--glass-edge) 0%, var(--glass-edge-soft) 30%, transparent 55%, color-mix(in oklab, #fff 14%, transparent));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.card > *, .post-card > *, .link-card > *, .file-card > *, .shop-card > *, .feature > * { position: relative; z-index: 1; }
+
+/* 卡片浮起 */
+.post-card, .note-card, .link-card, .shop-card {
+  transition: transform 0.26s var(--ease), box-shadow 0.26s var(--ease);
+}
+.post-card:hover, .note-card:hover, .link-card:hover, .file-card:hover, .shop-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--glass-depth-lg), var(--glass-inset);
+}
+
+/* 统计卡：玻璃 + 彩色折射条 */
+.stat {
+  border-radius: var(--radius-glass);
+  overflow: hidden;
+}
+.stat::after {
+  content: '';
+  position: absolute;
+  inset: -30% -10% auto -10%;
+  height: 70%;
+  border-radius: inherit;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tone, var(--accent)) 22%, transparent), transparent);
+  pointer-events: none;
+}
+.stat::before { background: linear-gradient(150deg, var(--glass-edge), transparent 60%); }
+
+/* ------------------------------ 控件玻璃 ------------------------------ */
+
+.btn {
+  background: color-mix(in oklab, var(--surface) 58%, transparent);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, #fff 26%, transparent),
+    0 2px 8px -4px color-mix(in oklab, var(--shadow-color, #101430) 26%, transparent);
+  border-radius: 14px;
+}
+.btn:hover {
+  background: color-mix(in oklab, var(--surface) 78%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, #fff 40%, transparent),
+    0 6px 16px -6px color-mix(in oklab, var(--shadow-color, #101430) 30%, transparent);
+}
+.btn:active { transform: translateY(1px) scale(0.99); }
+
+.btn-primary {
+  background: linear-gradient(140deg, color-mix(in oklab, var(--accent) 92%, #fff), color-mix(in oklab, var(--accent) 78%, #000));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, #fff 45%, transparent),
+    0 4px 14px -4px color-mix(in oklab, var(--accent) 55%, transparent);
+}
+.btn-primary:hover {
+  background: linear-gradient(140deg, color-mix(in oklab, var(--accent) 84%, #fff), color-mix(in oklab, var(--accent) 70%, #000));
+}
+
+.btn.is-liked, .btn-ghost.is-on {
+  background: color-mix(in oklab, var(--accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 46%, transparent);
+}
+
+.icon-btn {
+  border-radius: 12px;
+  transition: background 0.18s var(--ease), box-shadow 0.18s var(--ease), transform 0.18s var(--ease);
+}
+.icon-btn:hover {
+  background: color-mix(in oklab, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+.input {
+  background: color-mix(in oklab, var(--surface) 52%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: none;
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, #fff 22%, transparent), inset 0 1px 3px color-mix(in oklab, #000 8%, transparent);
+  border-radius: 14px;
+}
+.input:focus {
+  box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 4px color-mix(in oklab, var(--accent) 20%, transparent);
+}
+
+/* 标签 / 徽章：胶囊玻璃 */
+.badge, .chip, .tag, .nav-badge {
+  background: color-mix(in oklab, var(--surface) 52%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, #fff 20%, transparent);
+}
+.badge.tone-indigo, .chip.is-active {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 44%, transparent);
+}
+
+/* 进度条 */
+.progress {
+  background: color-mix(in oklab, #000 10%, transparent);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, #000 22%, transparent);
+  backdrop-filter: blur(6px);
+}
+.progress-bar {
+  background: linear-gradient(90deg, color-mix(in oklab, var(--accent) 82%, #fff), var(--accent));
+  box-shadow: 0 0 12px -2px color-mix(in oklab, var(--accent) 70%, transparent);
+}
+
+/* 头像：玻璃环 */
+.avatar { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.34), 0 2px 10px -4px rgb(0 0 0 / 0.5); }
+
+/* 模态框 */
+.modal {
+  background: color-mix(in oklab, var(--bg-elev) 78%, transparent);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  box-shadow: var(--glass-depth-lg), inset 0 1px 0 var(--glass-edge);
+}
+.modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(150deg, var(--glass-edge), transparent 55%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.modal-backdrop { backdrop-filter: blur(18px) saturate(140%); background: color-mix(in oklab, #05070f 52%, transparent); }
+
+/* Toast */
+.toast {
+  background: color-mix(in oklab, var(--bg-elev) 76%, transparent);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+  box-shadow: var(--glass-depth), inset 0 1px 0 var(--glass-edge);
+  border-radius: 16px;
+}
+
+/* 命令面板 */
+.palette-input {
+  background: transparent;
+  border-radius: var(--radius-glass) var(--radius-glass) 0 0;
+}
+.palette-item.is-active {
+  background: color-mix(in oklab, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 36%, transparent);
+}
+
+/* 表格 */
+.table tbody tr:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); }
+
+/* 分段控件 */
+.segmented {
+  background: color-mix(in oklab, #000 8%, transparent);
+  box-shadow: inset 0 1px 3px color-mix(in oklab, #000 22%, transparent);
+  backdrop-filter: blur(8px);
+}
+.segmented button.is-active {
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.3), inset 0 1px 0 var(--glass-edge);
+}
+
+/* 聊天消息气泡：玻璃 */
+.chat-bubble {
+  background: color-mix(in oklab, var(--surface) 66%, transparent);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, #fff 18%, transparent), 0 2px 10px -6px rgb(0 0 0 / 0.4);
+  border-radius: 16px 16px 16px 6px;
+}
+.chat-row.is-mine .chat-bubble {
+  background: linear-gradient(140deg, color-mix(in oklab, var(--accent) 88%, #fff), var(--accent));
+  color: var(--accent-fg);
+  border-radius: 16px 16px 6px 16px;
+  box-shadow: inset 0 1px 0 color-mix(in oklab, #fff 40%, transparent), 0 4px 16px -6px color-mix(in oklab, var(--accent) 60%, transparent);
+}
+
+/* 侧栏卡片也要玻璃 */
+.chat-rooms, .chat-members, .chat-main.card {
+  background: color-mix(in oklab, var(--surface) var(--glass-tint), transparent);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+}
+.chat-side { background: color-mix(in oklab, #000 6%, transparent); backdrop-filter: blur(14px); }
+
+/* FAB 玻璃 */
+.fab {
+  background: linear-gradient(140deg, color-mix(in oklab, var(--accent) 88%, #fff), var(--accent));
+  backdrop-filter: blur(16px);
+  box-shadow: var(--glass-depth-lg), inset 0 1px 0 color-mix(in oklab, #fff 46%, transparent);
+}
+
+/* 品牌标记 */
+.brand-mark {
+  background: linear-gradient(140deg, color-mix(in oklab, var(--accent) 82%, #fff), color-mix(in oklab, var(--accent) 72%, #000));
+  box-shadow: inset 0 1px 0 color-mix(in oklab, #fff 55%, transparent), 0 4px 14px -6px color-mix(in oklab, var(--accent) 65%, transparent);
+}
+
+/* 滚动条也走玻璃 */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--text-3) 34%, transparent);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in oklab, var(--text-2) 52%, transparent); background-clip: content-box; }
+
+/* ------------------------------ 精细动效 ------------------------------ */
+
+@keyframes glass-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.985); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+.fade-in { animation: glass-in 0.34s var(--ease); }
+
+@keyframes sheen {
+  0% { transform: translateX(-120%) rotate(12deg); }
+  60%, 100% { transform: translateX(220%) rotate(12deg); }
+}
+
+/* 顶栏扫光：极轻的玻璃反光扫过 */
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -40%;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, #fff 12%, transparent), transparent);
+  animation: sheen 7s var(--ease) infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar::after { animation: none; display: none; }
+  .card, .post-card, .note-card { transition: none; }
+}
+
+/* 无 backdrop-filter 时退回实色，保证可读 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass, .card, .stat, .post-card, .note-card, .link-card, .file-card, .shop-card,
+  .sidebar, .topbar, .chat-bubble, .modal, .toast {
+    background: var(--surface);
+  }
+}

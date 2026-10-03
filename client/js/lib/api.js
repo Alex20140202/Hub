@@ -38,7 +38,7 @@ async function request(method, path, body) {
 export async function fetchFragment(path) {
   const url = new URL(path, location.origin);
   url.searchParams.set('_partial', '1');
-  const response = await fetch(url, { credentials: 'same-origin' });
+  const response = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
   if (!response.ok) throw new ApiError('页面加载失败', response.status);
   return response.text();
 }
@@ -112,6 +112,31 @@ export const api = {
     redeem: (itemId) => request('POST', `/api/shop/redeem/${itemId}`),
     use: (ownedId) => request('POST', `/api/shop/use/${ownedId}`),
   },
+  rooms: {
+    mine: () => request('GET', '/api/rooms'),
+    discover: () => request('GET', '/api/rooms/discover'),
+    messages: (code, limit = 50) => request('GET', `/api/rooms/${encodeURIComponent(code)}/messages?limit=${limit}`),
+    members: (code) => request('GET', `/api/rooms/${encodeURIComponent(code)}/members`),
+    create: (payload) => request('POST', '/api/rooms', payload),
+    update: (code, payload) => request('PATCH', `/api/rooms/${encodeURIComponent(code)}`, payload),
+    remove: (code) => request('DELETE', `/api/rooms/${encodeURIComponent(code)}`),
+    join: (code) => request('POST', `/api/rooms/${encodeURIComponent(code)}/join`),
+    leave: (code) => request('POST', `/api/rooms/${encodeURIComponent(code)}/leave`),
+    addMembers: (code, userIds) => request('POST', `/api/rooms/${encodeURIComponent(code)}/members`, { userIds }),
+    setRole: (code, userId, role) => request('PATCH', `/api/rooms/${encodeURIComponent(code)}/members/${userId}`, { role }),
+    kick: (code, userId) => request('DELETE', `/api/rooms/${encodeURIComponent(code)}/members/${userId}`),
+    read: (code) => request('POST', `/api/rooms/${encodeURIComponent(code)}/read`),
+    search: (code, q) => request('GET', `/api/rooms/${encodeURIComponent(code)}/search?q=${encodeURIComponent(q)}`),
+    pin: (code, messageId) => request('POST', `/api/rooms/${encodeURIComponent(code)}/pin`, { messageId }),
+    unpin: (code) => request('DELETE', `/api/rooms/${encodeURIComponent(code)}/pin`),
+    mute: (code, muted) => request('POST', `/api/rooms/${encodeURIComponent(code)}/mute`, { muted }),
+    seen: (code, messageIds) => request('POST', `/api/rooms/${encodeURIComponent(code)}/seen`, { messageIds }),
+  },
+  dms: {
+    list: () => request('GET', '/api/dms'),
+    open: (userId) => request('POST', '/api/dms', { userId }),
+  },
+
   preview: (markdown) => request('POST', '/api/preview', { markdown }),
   subscribe: (email) => request('POST', '/api/subscribe', { email }),
 

@@ -154,9 +154,39 @@ export function redeem(userId, itemId) {
 
     run('UPDATE shop_items SET sold = sold + 1 WHERE id = ?', itemId);
     const { lastInsertRowid } = run('INSERT INTO user_items (user_id, item_id) VALUES (?, ?)', userId, itemId);
-    return { ok: true, item: shapeItem(item), ownedId: lastInsertRowid, balance: paid.balance };
+
+    // 皮肤 / 头像框 / 称号 / 存储 属唯一类：兑换即自动装备，用户不必再手动点一次
+    const equipped = equipOwned(userId, item);
+    return { ok: true, item: shapeItem(item), ownedId: lastInsertRowid, balance: paid.balance, equipped };
   });
 }
+
+/** 把唯一类道具装备到用户档案上。返回被写入的字段名。 */
+export function equipOwned(userId, item) {
+  switch (item.kind) {
+    case 'skin':
+      run('UPDATE users SET skin = ? WHERE id = ?', item.payload, userId);
+      return 'skin';
+    case 'frame':
+      run('UPDATE users SET frame = ? WHERE id = ?', item.payload, userId);
+      return 'frame';
+    case 'title':
+      run('UPDATE users SET title = ? WHERE id = ?', item.payload, userId);
+      return 'title';
+    case 'storage':
+      run('UPDATE users SET storage_bonus = storage_bonus + ? WHERE id = ?', Number(item.payload) || 0, userId);
+      return 'storage';
+    default:
+      return null;
+  }
+}
+
+/** 当前用户的完整外观（供渲染与客户端使用）。 */
+export const cosmeticsOf = (userId) => {
+  const user = get('SELECT skin, frame, title, badges, storage_bonus AS storageBonus FROM users WHERE id = ?', userId);
+  if (!user) return { skin: '', frame: '', title: '', badges: [], storageBonus: 0 };
+  return { ...user, badges: user.badges ? user.badges.split(' ').filter(Boolean) : [] };
+};
 
 /** 使用一次性道具（如改名券）。 */
 export function useOwned(userId, ownedId) {
@@ -166,11 +196,21 @@ export function useOwned(userId, ownedId) {
     const item = get('SELECT * FROM shop_items WHERE id = ?', owned.item_id);
     if (item.kind !== 'consumable') return { ok: false, error: '该道具无法手动使用' };
     run('UPDATE user_items SET used = 1 WHERE id = ?', ownedId);
+
+    // 幸运 Cookie：随机发放积分
+    if (item.payload === 'lucky') {
+      const reward = 50 + Math.floor(Math.random() * 251);
+      const balance = balanceOf(userId) + reward;
+      run('UPDATE users SET points = ? WHERE id = ?', balance, userId);
+      run('INSERT INTO point_logs (user_id, delta, balance, reason) VALUES (?, ?, ?, ?)', userId, reward, balance, '幸运 Cookie');
+      return { ok: true, item: shapeItem(item), reward, balance };
+    }
     return { ok: true, item: shapeItem(item) };
   });
 }
 
 export const overview = (userId) => ({
+  ...cosmeticsOf(userId),
   balance: balanceOf(userId),
   streak: currentStreak(userId),
   rank: myRank(userId),

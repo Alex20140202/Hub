@@ -7,11 +7,11 @@ export { pageHead, empty, statCard, pager };
 
 /* --------------------------------- 片段助手 --------------------------------- */
 
-const avatar = (name, hue, size = '') =>
-  `<span class="avatar${size ? ` avatar-${size}` : ''}" style="--hue:${Number(hue) || 210}">${escapeHtml(initials(name))}</span>`;
+const avatar = (name, hue, size = '', frame = '') =>
+  `<span class="avatar${size ? ` avatar-${size}` : ''}" style="--hue:${Number(hue) || 210}"${frame ? ` data-frame="${escapeHtml(frame)}"` : ''}>${escapeHtml(initials(name))}</span>`;
 
 const byline = (post) => `<span class="byline">
-  ${avatar(post.authorName, post.authorHue, 'sm')}
+  ${avatar(post.authorName, post.authorHue, 'sm', post.authorFrame)}
   <a href="/u/${attr(post.authorUsername)}">${escapeHtml(post.authorName)}</a>
   <span class="dot">·</span><time>${escapeHtml(formatDate(post.publishedAt ?? post.createdAt))}</time>
   <span class="dot">·</span><span>${formatNumber(post.views)} 阅读</span>

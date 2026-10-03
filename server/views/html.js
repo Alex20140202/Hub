@@ -61,3 +61,10 @@ export const icon = (name, size = 18) =>
   }</svg>`;
 
 export const initials = (name) => String(name || '?').trim().slice(0, 1).toUpperCase() || '?';
+
+/** 带商城头像框的头像（frame 为空时退化为普通头像）。 */
+export function avatarWithFrame(user, className = 'avatar', size = null) {
+  const frame = user?.frame ? ` data-frame="${escapeHtml(user.frame)}"` : '';
+  const sizeClass = size ? ` ${size}` : '';
+  return `<span class="${className}${sizeClass}" style="--hue:${Number(user?.avatarHue) || 210}"${frame}>${escapeHtml(initials(user?.nickname))}</span>`;
+}

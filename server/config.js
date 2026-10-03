@@ -52,6 +52,8 @@ export const config = {
   tokenSecret: secret,
   tokenTtlMs: num(process.env.TOKEN_TTL_HOURS, 24 * 14) * 3600_000,
   maxUploadBytes: num(process.env.MAX_UPLOAD_BYTES, 25 * 1024 * 1024),
+  // 单用户存储配额基数，实际配额 = base + 商城扩容加成
+  storageBaseBytes: 200 * 1024 * 1024,
   maxJsonBytes: 1024 * 1024,
   adminEmail: process.env.ADMIN_EMAIL || 'admin@hub.dev',
   adminPassword: process.env.ADMIN_PASSWORD || 'admin12345',
